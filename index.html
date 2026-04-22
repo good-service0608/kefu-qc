@@ -212,6 +212,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="nav-tab" onclick="switchTab('issue')">⚠️ 问题分析</div>
   <div class="nav-tab" onclick="switchTab('sop')">📄 质检SOP</div>
   <div class="nav-tab" onclick="switchTab('shopflow')">🏪 店铺流程</div>
+  <div class="nav-tab" onclick="switchTab('scheme')">📐 绩效方案</div>
   <div class="nav-tab" onclick="switchTab('perf')">📁 绩效留档</div>
 </div>
 
@@ -562,6 +563,248 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       </div>
     </div>
   </div>
+</div>
+
+<!-- 绩效方案页 -->
+<div class="page" id="page-scheme">
+<style>
+  .scheme-role-tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+  .scheme-role-tab{padding:8px 20px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:2px solid var(--border);background:white;color:var(--text2);transition:all 0.2s}
+  .scheme-role-tab.active{background:var(--primary);color:white;border-color:var(--primary)}
+  .scheme-block{display:none}.scheme-block.active{display:block}
+  .scheme-card{background:var(--card);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+  .scheme-card-title{font-size:14px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .scheme-card-title::before{content:'';width:4px;height:16px;background:var(--primary);border-radius:2px;display:inline-block}
+  .weight-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .weight-row:last-child{border-bottom:none}
+  .weight-label{font-size:13px;font-weight:600;min-width:150px}
+  .weight-bar-wrap{flex:1;display:flex;align-items:center;gap:8px}
+  .weight-bar{height:20px;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:700;color:white;min-width:30px;transition:width 0.4s}
+  .weight-note{font-size:11px;color:var(--text2);min-width:200px}
+  .rule-item{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:13px}
+  .rule-item.red{background:#fff0f0;border-left:3px solid var(--fail)}
+  .rule-item.orange{background:#fff8e1;border-left:3px solid var(--warn)}
+  .rule-item.green{background:#f0fff0;border-left:3px solid var(--pass)}
+  .rule-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+  .brand-table{width:100%;border-collapse:collapse;font-size:13px}
+  .brand-table th{background:#f8f8f8;padding:8px 12px;text-align:left;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border)}
+  .brand-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
+  .brand-table tr:last-child td{border-bottom:none}
+  .badge-pass{background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge-warn{background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+</style>
+
+<div class="scheme-role-tabs">
+  <div class="scheme-role-tab active" onclick="switchScheme('reception')">接待客服</div>
+  <div class="scheme-role-tab" onclick="switchScheme('workorder')">工单客服</div>
+  <div class="scheme-role-tab" onclick="switchScheme('leader')">客服组长</div>
+  <div class="scheme-role-tab" onclick="switchScheme('common')">通用规则</div>
+</div>
+
+<!-- 接待客服 -->
+<div class="scheme-block active" id="scheme-reception">
+  <div class="scheme-card">
+    <div class="scheme-card-title">权重分配</div>
+    <div class="weight-row">
+      <div class="weight-label">非满意率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:180px;background:#DA291C">30%</div>
+        <div class="weight-note">按品牌标准逐店考核，达标率≤60%整体清零</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">质检合格率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:120px;background:#FF9800">20%</div>
+        <div class="weight-note">每个店铺质检合格率≥90%，达标店铺数/总服务店铺数；达标率≤60%本项清零</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">接待量达标率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:180px;background:#1565C0">30%</div>
+        <div class="weight-note">≥全员人均×80%，整体接待量/本月平均接待量</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">响应时长达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:60px;background:#4CAF50">10%</div>
+        <div class="weight-note">≤15s，按店铺达标数/总店铺数计算</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">3分钟回复率达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:60px;background:#4CAF50">10%</div>
+        <div class="weight-note">≥99%，按店铺达标数/总店铺数计算</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">非满意率品牌标准</div>
+    <table class="brand-table">
+      <tr><th>品牌/店铺</th><th>非满标准</th><th>说明</th></tr>
+      <tr><td>舒肤佳官方旗舰店</td><td><span class="badge-warn">≤10%</span></td><td></td></tr>
+      <tr><td>吉列个护用品旗舰店</td><td><span class="badge-warn">≤10%</span></td><td></td></tr>
+      <tr><td>吉列维纳斯个护用品旗舰店</td><td><span class="badge-warn">≤10%</span></td><td></td></tr>
+      <tr><td>爱他美奶粉海外旗舰店</td><td><span class="badge-warn">≤8%</span></td><td></td></tr>
+      <tr><td>爱他美至熠海外旗舰店</td><td><span class="badge-warn">≤8%</span></td><td></td></tr>
+      <tr><td>沙宣官方旗舰店</td><td><span class="badge-pass">≤20%</span></td><td></td></tr>
+      <tr><td>麦当劳官方旗舰店</td><td><span class="badge-pass">≤20%</span></td><td>客服无处理权，只能升级400</td></tr>
+      <tr><td>a2 GENESIS / a2紫曜 / STOKKE / 怡宝</td><td><span class="badge-pass">≤20%</span></td><td>无客户考核时按20%为准</td></tr>
+    </table>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">关键规则</div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>非满达标率≤60%</strong> → 本月整体绩效清零（不只是非满项，是所有绩效）</div></div>
+    <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>质检合格率达标率≤60%</strong> → 本项无绩效值</div></div>
+    <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
+    <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围，增加店铺且接待量高于该店铺平均值，需组长+主管+总监确认</div></div>
+    <div class="rule-item red"><div class="rule-icon">📉</div><div><strong>重大事故-10%</strong>：操作失误导致客诉升级或品牌投诉；连续3个月非满/质检达标率＜70%进行淘汰</div></div>
+  </div>
+</div>
+
+<!-- 工单客服 -->
+<div class="scheme-block" id="scheme-workorder">
+  <div class="scheme-card">
+    <div class="scheme-card-title">权重分配</div>
+    <div class="weight-row">
+      <div class="weight-label">售后处理时长达成率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:300px;background:#DA291C">50%</div>
+        <div class="weight-note">100%店铺达成，完成店铺量/服务店铺量；达标率≤60%整体清零</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">工单量达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:120px;background:#1565C0">20%</div>
+        <div class="weight-note">工单创建量+完结量≥组内平均值80%，达标店铺数/总服务店铺数</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">平均解决时间</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:120px;background:#FF9800">20%</div>
+        <div class="weight-note">≤72h（总时间÷解决数）</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">其他要求</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:60px;background:#4CAF50">10%</div>
+        <div class="weight-note">协助接待处理事项 + 群消息回复≤20min</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">关键规则</div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理时长达成率≤60%</strong> → 本月整体绩效清零</div></div>
+    <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>平均解决时间目标≤72h</strong>，母婴类允许适当延长，后期持续摸索优化</div></div>
+    <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
+    <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围或储备组长期间，需组长+主管+总监确认</div></div>
+    <div class="rule-item red"><div class="rule-icon">📉</div><div><strong>重大事故-10%</strong>：操作失误导致损失或客诉升级≥3单；连续3个月质检达标率＜70%淘汰</div></div>
+  </div>
+</div>
+
+<!-- 客服组长 -->
+<div class="scheme-block" id="scheme-leader">
+  <div class="scheme-card">
+    <div class="scheme-card-title">权重分配</div>
+    <div class="weight-row">
+      <div class="weight-label">团队非满意度达标率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:240px;background:#DA291C">40%</div>
+        <div class="weight-note">所有负责店铺达标率汇总，≤60%整体清零</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">售后工单处理时长达成率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:150px;background:#1565C0">25%</div>
+        <div class="weight-note">100%店铺达成（服务体验分核心指标）</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">响应时长达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:120px;background:#FF9800">20%</div>
+        <div class="weight-note">团队整体≤15s（服务体验分核心指标）</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">培训计划完成</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:90px;background:#4CAF50">15%</div>
+        <div class="weight-note">培训数量≥10次，≤5次为0分，按系数折算</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">服务体验分说明</div>
+    <div style="font-size:13px;color:var(--text2);padding:8px 0;line-height:2">
+      服务体验分由两个指标共同构成：<br>
+      <strong style="color:var(--text)">① 响应时长（20%）</strong> — 客服接待侧，直接影响平台体验分<br>
+      <strong style="color:var(--text)">② 售后工单处理时长（25%）</strong> — 工单侧，直接影响平台体验分<br>
+      两项合计占组长绩效 <strong style="color:var(--primary)">45%</strong>，是组长最核心的考核维度。
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">关键规则</div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>团队非满达标率≤60%</strong> → 本月整体绩效清零</div></div>
+    <div class="rule-item red"><div class="rule-icon">📉</div><div>连续3个月非满达标率≤75% / 3个月内品牌投诉≥3次 / 直播间投诉≥3次 / 员工投诉≥3次 → 组长更替或淘汰</div></div>
+    <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+20%</strong>：主动培养储备组长 / 获客户或跨部门表扬，需邮件申请+组长+主管+总监确认</div></div>
+    <div class="rule-item red"><div class="rule-icon">📉</div><div><strong>重大事故-10%</strong>：品牌书面投诉 / 直播间重大投诉 / 客服部重大事故</div></div>
+  </div>
+</div>
+
+<!-- 通用规则 -->
+<div class="scheme-block" id="scheme-common">
+  <div class="scheme-card">
+    <div class="scheme-card-title">出勤与绩效计算</div>
+    <div style="font-size:13px;color:var(--text2);line-height:2.2;padding:4px 0">
+      <div>📌 <strong style="color:var(--text)">出勤≥15个工作日</strong>：全额绩效基数 × 绩效系数（正常计算）</div>
+      <div>📌 <strong style="color:var(--text)">出勤＜15个工作日</strong>：绩效基数 × (实际出勤工作日 ÷ 本月应出勤工作日) × 绩效系数</div>
+      <div>📌 <strong style="color:var(--text)">新人入职不足15天（非工作日）</strong>：无绩效，不参与考核</div>
+      <div>📌 <strong style="color:var(--text)">正常假期（年假/法定节假日）</strong>：计入出勤天数，不影响绩效</div>
+      <div style="margin-top:8px;padding:8px 12px;background:#fff8e1;border-radius:6px;color:#666">
+        💡 以上规则适用于所有人员（在职/请假/离职），新老员工统一标准。
+      </div>
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">请假与离职规则</div>
+    <table class="brand-table">
+      <tr><th>出勤情况</th><th>非满要求</th><th>绩效结果</th></tr>
+      <tr><td>出勤≥15个工作日</td><td>达标</td><td>绩效基数 × 绩效系数（全额）</td></tr>
+      <tr><td>出勤＜15个工作日</td><td>达标</td><td>绩效基数 × (实际工作日 ÷ 应出勤工作日) × 绩效系数</td></tr>
+      <tr><td>任意出勤天数</td><td>未达标</td><td style="color:var(--fail);font-weight:600">无绩效</td></tr>
+      <tr><td>新人入职不足15天（非工作日）</td><td>—</td><td style="color:var(--fail);font-weight:600">无绩效，不参与考核</td></tr>
+    </table>
+    <div style="font-size:12px;color:var(--text2);margin-top:10px;padding:8px;background:#fff8e1;border-radius:6px">
+      💡 核心原则：出勤天数决定能拿多少，非满达标与否决定能不能拿。适用于所有人员（在职/请假/离职），新老员工统一标准。
+    </div>
+  </div>
+
+  <div class="scheme-card">
+    <div class="scheme-card-title">加减分项汇总</div>
+    <table class="brand-table">
+      <tr><th>类型</th><th>幅度</th><th>触发条件</th><th>审批人</th></tr>
+      <tr><td style="color:var(--pass);font-weight:600">加分</td><td>+10%</td><td>主动扩大工作范围（接待/工单客服）</td><td>组长+主管+总监</td></tr>
+      <tr><td style="color:var(--pass);font-weight:600">加分</td><td>+10%</td><td>储备组长期间（工单客服）</td><td>组长+主管+总监</td></tr>
+      <tr><td style="color:var(--pass);font-weight:600">加分</td><td>+20%</td><td>培养储备组长/获跨部门表扬（组长）</td><td>组长+主管+总监</td></tr>
+      <tr><td style="color:var(--fail);font-weight:600">减分</td><td>-10%</td><td>重大事故（整体绩效减10%）</td><td>组长+主管</td></tr>
+      <tr><td style="color:var(--fail);font-weight:600">减分</td><td>-5%</td><td>考勤违规（日均在线不足7.5h）</td><td>组长</td></tr>
+    </table>
+  </div>
+</div>
 </div>
 
 <!-- 绩效留档页 -->
@@ -974,7 +1217,7 @@ function initIssuePage() {
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const tabs = ['dashboard','detail','agent','issue','sop','shopflow','perf'];
+  const tabs = ['dashboard','detail','agent','issue','sop','shopflow','scheme','perf'];
   const idx = tabs.indexOf(tab);
   document.querySelectorAll('.nav-tab')[idx].classList.add('active');
   document.getElementById('page-' + tab).classList.add('active');
@@ -987,33 +1230,40 @@ function switchShopflow(val) {
   if (target) target.style.display = 'block';
 }
 
+function switchScheme(val) {
+  document.querySelectorAll('.scheme-role-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.scheme-block').forEach(b => b.classList.remove('active'));
+  const tabs = document.querySelectorAll('.scheme-role-tab');
+  const order = ['reception','workorder','leader','common'];
+  const idx = order.indexOf(val);
+  if (tabs[idx]) tabs[idx].classList.add('active');
+  const block = document.getElementById('scheme-' + val);
+  if (block) block.classList.add('active');
+}
+
 // ============================================================
 // 绩效留档 — 云端版（Supabase）
 // ============================================================
 
 const PERF_WEIGHTS = {
   reception: [
-    { key:'nonSat',   label:'非满意率达标率',   weight:0.25, note:'各店铺≤10%' },
-    { key:'qc',       label:'质检合格率',       weight:0.15, note:'≥90%' },
-    { key:'volume',   label:'日均接待量达标率', weight:0.40, note:'日均≥200单，80%工作日达标' },
-    { key:'respTime', label:'平均响应时长达标率',weight:0.10, note:'≤15s' },
+    { key:'nonSat',   label:'非满意率达标率',   weight:0.30, note:'按品牌标准，达标率≤60%整体清零' },
+    { key:'qc',       label:'质检合格率达标率', weight:0.20, note:'≥90%，达标率≤60%本项清零' },
+    { key:'volume',   label:'接待量达标率',     weight:0.30, note:'≥全员人均×80%；非满≤60%时同步清零' },
+    { key:'respTime', label:'响应时长达标率',   weight:0.10, note:'≤15s' },
     { key:'reply3m',  label:'3分钟回复率达标率',weight:0.10, note:'≥99%' },
   ],
   workorder: [
-    { key:'qc',       label:'质检合格率',         weight:0.15, note:'≥95%' },
-    { key:'procTime', label:'售后处理时长达成率',  weight:0.30, note:'100%店铺达成' },
-    { key:'woCreate', label:'工单创建量达标率',    weight:0.15, note:'≥组内平均80%' },
-    { key:'woClose',  label:'工单完结量达标率',    weight:0.15, note:'≥组内平均80%' },
-    { key:'sop',      label:'流程遵守达标率',      weight:0.10, note:'错误单≤5单' },
-    { key:'assist',   label:'协助接待达标率',      weight:0.15, note:'及时协助有记录' },
+    { key:'procTime',  label:'售后处理时长达成率', weight:0.50, note:'100%店铺达成，达标率≤60%整体清零' },
+    { key:'woVolume',  label:'工单量达标率',       weight:0.20, note:'创建量+完结量≥组内平均80%' },
+    { key:'solveTime', label:'平均解决时间达标率',  weight:0.20, note:'≤72h' },
+    { key:'assist',    label:'其他要求',            weight:0.10, note:'协助接待+群消息≤20min' },
   ],
   leader: [
-    { key:'teamNonSat',label:'团队非满达标率',     weight:0.30, note:'各店铺≤10%' },
-    { key:'custKpi',   label:'客户考核项达标率',   weight:0.20, note:'按客户考核/体验分' },
-    { key:'teamQc',    label:'团队质检合格率',     weight:0.10, note:'月均≥90%' },
-    { key:'training',  label:'培训计划完成率',     weight:0.15, note:'有效培训≥2次/月' },
-    { key:'teamVol',   label:'团队接待量达标率',   weight:0.10, note:'团队日均达标率≥80%' },
-    { key:'procOpt',   label:'流程优化落地达标率', weight:0.15, note:'每月≥1个问题落地' },
+    { key:'teamNonSat',label:'团队非满意度达标率', weight:0.40, note:'按品牌标准，达标率≤60%整体清零' },
+    { key:'respTime',  label:'响应时长达标率',     weight:0.20, note:'≤15s' },
+    { key:'procTime',  label:'售后工单处理时长达成率',weight:0.25, note:'100%店铺达成' },
+    { key:'training',  label:'培训计划完成',       weight:0.15, note:'培训数量≥10，≤5个为0' },
   ]
 };
 
