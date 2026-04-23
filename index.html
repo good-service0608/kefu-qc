@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>客服质检管理系统</title>
+<title>客服质检绩效系统</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -195,7 +195,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="header-left">
     <div class="logo">🎯</div>
     <div class="header-title">
-      <h1>客服质检管理系统</h1>
+      <h1>客服质检绩效系统</h1>
       <p>多店铺客服质检平台 · 质检周期：每日 · 执行人：AI质检系统</p>
     </div>
   </div>
@@ -208,12 +208,12 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 <div class="nav">
   <div class="nav-tab active" onclick="switchTab('dashboard')">📊 质检概览</div>
   <div class="nav-tab" onclick="switchTab('detail')">📋 质检明细</div>
-  <div class="nav-tab" onclick="switchTab('agent')">👤 客服绩效</div>
+  <div class="nav-tab" onclick="switchTab('agent')">👤 客服质检汇总</div>
   <div class="nav-tab" onclick="switchTab('issue')">⚠️ 问题分析</div>
   <div class="nav-tab" onclick="switchTab('sop')">📄 质检SOP</div>
   <div class="nav-tab" onclick="switchTab('shopflow')">🏪 店铺流程</div>
   <div class="nav-tab" onclick="switchTab('scheme')">📐 绩效方案</div>
-  <div class="nav-tab" onclick="switchTab('perf')">📁 绩效留档</div>
+  <div class="nav-tab" onclick="switchTab('perf')">📊 绩效结果</div>
 </div>
 
 <!-- 概览页 -->
@@ -809,106 +809,307 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 <!-- 绩效留档页 -->
 <div class="page" id="page-perf">
-  <style>
-    .pf-stat{background:var(--card);border-radius:10px;padding:14px 18px;box-shadow:0 1px 4px rgba(0,0,0,0.08);border-top:3px solid var(--primary);text-align:center}
-    .pf-stat.green{border-top-color:var(--pass)} .pf-stat.gold{border-top-color:var(--gold)}
-    .pf-stat-label{font-size:12px;color:var(--text2);margin-bottom:4px}
-    .pf-stat-val{font-size:24px;font-weight:700}
-    .pf-form{background:var(--card);border-radius:12px;padding:20px 22px;box-shadow:0 1px 4px rgba(0,0,0,0.08);margin-bottom:18px}
-    .pf-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px}
-    .pf-row label{font-size:12px;color:var(--text2);display:block;margin-bottom:3px}
-    .pf-row input,.pf-row select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:white}
-    .pf-row input:focus,.pf-row select:focus{border-color:var(--primary)}
-    .btn-pf-pri{background:var(--primary);color:white;border:none;padding:9px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
-    .btn-pf-pri:hover{background:var(--primary-dark)}
-    .btn-pf-pri:disabled{opacity:.5;cursor:not-allowed}
-    .btn-pf-sec{background:#f5f5f5;color:var(--text2);border:1px solid var(--border);padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer}
-    .btn-pf-sec:hover{background:#eee}
-    #perfToast{display:none;position:fixed;bottom:24px;right:24px;color:white;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.2)}
-    #perfLoadingBar{display:none;width:100%;height:3px;background:linear-gradient(90deg,var(--primary) 0%,var(--gold) 50%,var(--primary) 100%);background-size:200% 100%;animation:shimmer 1.2s infinite;border-radius:2px;margin-bottom:12px}
-    @keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
-  </style>
+<style>
+  /* ── 绩效留档样式 ── */
+  .pf-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+  .pf-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pf-filters select,.pf-filters input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:white}
+  .pf-filters select:focus{border-color:var(--primary)}
+  .pf-btns{display:flex;gap:8px;flex-wrap:wrap}
+  .btn-pri{background:var(--primary);color:white;border:none;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s}
+  .btn-pri:hover{background:var(--primary-dark)}
+  .btn-sec{background:#f5f5f5;color:var(--text2);border:1px solid var(--border);padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer}
+  .btn-sec:hover{background:#eee}
 
-  <div id="perfLoadingBar"></div>
-  <div id="perfToast"></div>
+  /* 角色Tab */
+  .perf-role-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+  .perf-role-tab{padding:10px 24px;font-size:14px;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}
+  .perf-role-tab:hover{color:var(--primary)}
+  .perf-role-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+  .perf-role-block{display:none}.perf-role-block.active{display:block}
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <select id="perfMonthFilter" onchange="renderPerfList()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
-        <option value="">全部月份</option>
-      </select>
-      <select id="perfRoleFilter" onchange="renderPerfList()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
-        <option value="">全部岗位</option>
+  /* 看板卡片 */
+  .perf-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+  .perf-kpi{background:var(--card);border-radius:10px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid var(--border)}
+  .perf-kpi.red{border-top-color:var(--primary)} .perf-kpi.green{border-top-color:var(--pass)}
+  .perf-kpi.gold{border-top-color:var(--gold)} .perf-kpi.blue{border-top-color:#1565C0}
+  .perf-kpi-label{font-size:11px;color:var(--text2);margin-bottom:4px}
+  .perf-kpi-val{font-size:22px;font-weight:700}
+  .perf-kpi-sub{font-size:11px;color:var(--text2);margin-top:2px}
+
+  /* 人员卡片 */
+  .agent-perf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px}
+  .agent-perf-card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-left:4px solid var(--border)}
+  .agent-perf-card.full{border-left-color:var(--pass)}
+  .agent-perf-card.partial{border-left-color:var(--warn)}
+  .agent-perf-card.zero{border-left-color:var(--fail)}
+  .apc-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .apc-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:15px;flex-shrink:0}
+  .apc-name{font-size:14px;font-weight:700}
+  .apc-role{font-size:11px;color:var(--text2)}
+  .apc-amount{margin-left:auto;font-size:20px;font-weight:700}
+  .apc-amount.full{color:var(--pass)} .apc-amount.partial{color:var(--warn)} .apc-amount.zero{color:var(--fail)}
+  .apc-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px}
+  .apc-metric{display:flex;justify-content:space-between;padding:4px 6px;background:#f8f8f8;border-radius:4px}
+  .apc-metric-label{color:var(--text2)}
+  .apc-metric-val{font-weight:600}
+  .apc-metric-val.ok{color:var(--pass)} .apc-metric-val.bad{color:var(--fail)}
+  .apc-bar-wrap{margin-top:8px}
+  .apc-bar{height:6px;background:#eee;border-radius:3px;overflow:hidden}
+  .apc-bar-fill{height:100%;border-radius:3px;transition:width .4s}
+
+  /* 录入表单 */
+  .pf-form-wrap{background:var(--card);border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;display:none}
+  .pf-form-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .pf-form-title::before{content:'';width:4px;height:16px;background:var(--primary);border-radius:2px;display:inline-block}
+  .pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
+  .pf-field label{font-size:12px;color:var(--text2);display:block;margin-bottom:3px}
+  .pf-field input,.pf-field select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none}
+  .pf-field input:focus,.pf-field select:focus{border-color:var(--primary)}
+  .pf-section-title{font-size:12px;font-weight:700;color:var(--text2);padding:8px 0 4px;border-top:1px solid var(--border);margin-top:8px}
+  .pf-preview{padding:10px 14px;background:#f8f8f8;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .pf-preview-item{display:flex;flex-direction:column;align-items:center}
+  .pf-preview-label{font-size:10px;color:var(--text2)}
+  .pf-preview-val{font-size:18px;font-weight:700}
+
+  /* 详情表格 */
+  .detail-section{background:var(--card);border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:16px;overflow:hidden}
+  .detail-section-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:space-between}
+  .detail-table{width:100%;border-collapse:collapse;font-size:13px}
+  .detail-table th{background:#f8f8f8;padding:9px 12px;text-align:left;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap}
+  .detail-table td{padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+  .detail-table tr:last-child td{border-bottom:none}
+  .detail-table tr:hover td{background:#fafafa}
+  .perf-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .perf-badge.full{background:#e8f5e9;color:#2e7d32}
+  .perf-badge.partial{background:#fff3e0;color:#e65100}
+  .perf-badge.zero{background:#fdecea;color:#b71c1c}
+  .perf-coef{font-size:15px;font-weight:700}
+  .indicator-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+  .dot-ok{background:var(--pass)} .dot-bad{background:var(--fail)} .dot-warn{background:var(--warn)}
+
+  /* toast */
+  #pfToast{display:none;position:fixed;bottom:24px;right:24px;color:white;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+  #pfLoading{display:none;width:100%;height:3px;background:linear-gradient(90deg,var(--primary) 0%,var(--gold) 50%,var(--primary) 100%);background-size:200% 100%;animation:shimmer 1.2s infinite;border-radius:2px;margin-bottom:12px}
+  @keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
+  .empty-state{text-align:center;padding:48px 0;color:var(--text2)}
+  .empty-state-icon{font-size:40px;margin-bottom:10px}
+</style>
+
+<div id="pfLoading"></div>
+<div id="pfToast"></div>
+
+<!-- 工具栏 -->
+<div class="pf-toolbar">
+  <div class="pf-filters">
+    <select id="pfMonthSel" onchange="pfOnFilterChange()">
+      <option value="">全部月份</option>
+    </select>
+    <select id="pfRoleSel" onchange="pfOnFilterChange()">
+      <option value="">全部岗位</option>
+      <option value="reception">接待客服</option>
+      <option value="workorder">工单客服</option>
+      <option value="leader">客服组长</option>
+    </select>
+    <input type="text" id="pfNameSearch" placeholder="搜索姓名…" oninput="pfOnFilterChange()" style="width:120px">
+  </div>
+  <div class="pf-btns">
+    <button class="btn-sec" onclick="pfExportCSV()">📥 导出CSV</button>
+    <button class="btn-pri" onclick="pfOpenForm()">+ 录入绩效</button>
+  </div>
+</div>
+
+<!-- 月度汇总看板 -->
+<div class="perf-board" id="pfKpiBoard">
+  <div class="perf-kpi red"><div class="perf-kpi-label">本月留档人次</div><div class="perf-kpi-val" id="pfKpi1">—</div></div>
+  <div class="perf-kpi green"><div class="perf-kpi-label">平均绩效系数</div><div class="perf-kpi-val" id="pfKpi2">—</div></div>
+  <div class="perf-kpi gold"><div class="perf-kpi-label">合计实发绩效</div><div class="perf-kpi-val" id="pfKpi3">—</div></div>
+  <div class="perf-kpi blue"><div class="perf-kpi-label">满绩效人数</div><div class="perf-kpi-val" id="pfKpi4">—</div><div class="perf-kpi-sub" id="pfKpi4sub"></div></div>
+  <div class="perf-kpi"><div class="perf-kpi-label">整体清零人数</div><div class="perf-kpi-val" id="pfKpi5" style="color:var(--fail)">—</div></div>
+</div>
+
+<!-- 录入表单 -->
+<div class="pf-form-wrap" id="pfFormWrap">
+  <div class="pf-form-title">录入绩效数据</div>
+  <div class="pf-grid">
+    <div class="pf-field"><label>姓名 *</label><input id="pf_name" placeholder="如：张洋洋"></div>
+    <div class="pf-field"><label>考核月份 *</label><input type="month" id="pf_month"></div>
+    <div class="pf-field"><label>岗位 *</label>
+      <select id="pf_role" onchange="pfRenderFields()">
         <option value="reception">接待客服</option>
         <option value="workorder">工单客服</option>
         <option value="leader">客服组长</option>
       </select>
     </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn-pf-sec" onclick="exportPerfCSV()">导出 CSV（人资用）</button>
-      <button class="btn-pf-pri" onclick="openNewPerfForm()">+ 新增绩效记录</button>
-    </div>
-  </div>
-
-  <div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-    <div class="pf-stat" style="min-width:120px"><div class="pf-stat-label">留档人次</div><div class="pf-stat-val" id="perfStatCount">—</div></div>
-    <div class="pf-stat green" style="min-width:140px"><div class="pf-stat-label">平均绩效系数</div><div class="pf-stat-val" id="perfStatAvg" style="color:var(--pass)">—</div></div>
-    <div class="pf-stat gold" style="min-width:160px"><div class="pf-stat-label">合计实发绩效</div><div class="pf-stat-val" id="perfStatAmt" style="color:#B8860B">—</div></div>
-  </div>
-
-  <!-- 新增/编辑表单 -->
-  <div id="perfFormWrap" style="display:none">
-    <div class="pf-form">
-      <div style="font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px">
-        <span style="width:4px;height:16px;background:var(--primary);border-radius:2px;display:inline-block"></span>
-        录入绩效数据
-      </div>
-      <div class="pf-row">
-        <div><label>姓名 *</label><input type="text" id="pf_name" placeholder="如：麦小妖"></div>
-        <div><label>考核月份 *</label><input type="month" id="pf_month"></div>
-        <div>
-          <label>岗位 *</label>
-          <select id="pf_role" onchange="renderPerfFormFields()">
-            <option value="reception">接待客服</option>
-            <option value="workorder">工单客服</option>
-            <option value="leader">客服组长</option>
-          </select>
-        </div>
-        <div><label>所属组</label><input type="text" id="pf_group" placeholder="如：接待A组"></div>
-        <div><label>绩效基数（元）</label><input type="number" id="pf_base" value="1000" oninput="updatePerfPreview()"></div>
-        <div style="display:flex;flex-direction:column;justify-content:flex-end">
-          <label>实时预览</label>
-          <div id="perfPreview" style="padding:8px 12px;background:#f8f8f8;border-radius:6px;min-height:38px;display:flex;align-items:center">—</div>
-        </div>
-      </div>
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin:10px 0 4px">各指标达标率（0–100，代表该指标的店铺达标率%）</div>
-      <div id="perfFormFields"></div>
-      <div style="margin-top:14px;display:flex;gap:10px">
-        <button class="btn-pf-pri" id="perfSubmitBtn" onclick="submitPerfForm()">保存留档</button>
-        <button class="btn-pf-sec" onclick="closePerfForm()">取消</button>
+    <div class="pf-field"><label>所属组</label><input id="pf_group" placeholder="如：客服三组"></div>
+    <div class="pf-field"><label>绩效基数（元）</label><input type="number" id="pf_base" value="1000" oninput="pfUpdatePreview()"></div>
+    <div class="pf-field"><label>出勤天数/应出勤天数</label>
+      <div style="display:flex;gap:6px">
+        <input type="number" id="pf_attend" value="22" oninput="pfUpdatePreview()" style="width:50%">
+        <span style="display:flex;align-items:center;color:var(--text2)">/</span>
+        <input type="number" id="pf_should" value="22" oninput="pfUpdatePreview()" style="width:50%">
       </div>
     </div>
+    <div class="pf-field"><label>加减分项（%，如+10或-10）</label><input type="number" id="pf_adj" value="0" oninput="pfUpdatePreview()"></div>
+    <div class="pf-field"><label>备注</label><input id="pf_remark" placeholder="如：请假5天，非满超标"></div>
   </div>
 
-  <!-- 留档记录表 -->
-  <div class="section" style="padding:0">
-    <div style="padding:13px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">月度绩效留档记录</div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>月份</th><th>姓名</th><th>岗位</th><th>所属组</th><th>基数</th><th>系数</th><th>实发</th><th>各项达标率</th><th>操作</th></tr>
-        </thead>
-        <tbody id="perfArchiveBody">
-          <tr><td colspan="9" style="text-align:center;color:var(--text2);padding:32px">加载中...</td></tr>
-        </tbody>
+  <!-- 动态指标字段 -->
+  <div class="pf-section-title">各指标达标率（填入0-100的数字，代表该指标达标率%）</div>
+  <div class="pf-grid" id="pfDynFields"></div>
+
+  <!-- 实时预览 -->
+  <div class="pf-preview" id="pfPreview">
+    <div class="pf-preview-item"><div class="pf-preview-label">绩效系数</div><div class="pf-preview-val" id="pvCoef">—</div></div>
+    <div class="pf-preview-item"><div class="pf-preview-label">出勤系数</div><div class="pf-preview-val" id="pvAttend">—</div></div>
+    <div class="pf-preview-item"><div class="pf-preview-label">加减分</div><div class="pf-preview-val" id="pvAdj">—</div></div>
+    <div class="pf-preview-item"><div class="pf-preview-label" style="font-weight:700">实发金额</div><div class="pf-preview-val" id="pvAmt" style="color:var(--primary);font-size:22px">—</div></div>
+  </div>
+
+  <div style="margin-top:14px;display:flex;gap:10px">
+    <button class="btn-pri" id="pfSubmitBtn" onclick="pfSubmit()">保存留档</button>
+    <button class="btn-sec" onclick="pfCloseForm()">取消</button>
+  </div>
+</div>
+
+<!-- 岗位 Tab -->
+<div class="perf-role-tabs">
+  <div class="perf-role-tab active" onclick="pfSwitchRole('reception')">接待客服</div>
+  <div class="perf-role-tab" onclick="pfSwitchRole('workorder')">工单客服</div>
+  <div class="perf-role-tab" onclick="pfSwitchRole('leader')">客服组长</div>
+  <div class="perf-role-tab" onclick="pfSwitchRole('shopdetail')">🏪 店铺明细</div>
+</div>
+
+<!-- 接待客服板块 -->
+<div class="perf-role-block active" id="pfBlock_reception">
+  <div class="agent-perf-grid" id="pfCards_reception"></div>
+  <div class="detail-section">
+    <div class="detail-section-header">
+      <span>接待客服详情数据</span>
+      <span id="pfCount_reception" style="font-size:12px;font-weight:400;color:var(--text2)"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="detail-table">
+        <thead><tr>
+          <th>月份</th><th>姓名</th><th>所属组</th><th>非满达标率</th><th>质检达标率</th><th>接待量达标</th><th>响应时长达标率</th><th>3分钟回复率达标率</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pfTable_reception"><tr><td colspan="15" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr></tbody>
       </table>
     </div>
   </div>
+</div>
 
-  <div style="margin-top:12px;padding:10px 14px;background:#fff8e1;border-radius:8px;border:1px solid var(--gold);font-size:12px;color:#666;line-height:1.8">
-    <strong style="color:#B8860B">云端说明：</strong>数据存储在 Supabase 云端，你录入后老板打开链接即可实时看到。
-    导出 CSV 可直接交给人资。如数据加载失败，请检查页面顶部的 SUPABASE_URL 和 SUPABASE_ANON_KEY 是否已正确填写。
+<!-- 工单客服板块 -->
+<div class="perf-role-block" id="pfBlock_workorder">
+  <div class="agent-perf-grid" id="pfCards_workorder"></div>
+  <div class="detail-section">
+    <div class="detail-section-header">
+      <span>工单客服详情数据</span>
+      <span id="pfCount_workorder" style="font-size:12px;font-weight:400;color:var(--text2)"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="detail-table">
+        <thead><tr>
+          <th>月份</th><th>姓名</th><th>所属组</th><th>售后处理时长达成率</th><th>工单量达标率</th><th>平均解决时长达标</th><th>其他要求</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pfTable_workorder"><tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr></tbody>
+      </table>
+    </div>
   </div>
+</div>
+
+<!-- 客服组长板块 -->
+<div class="perf-role-block" id="pfBlock_leader">
+  <div class="agent-perf-grid" id="pfCards_leader"></div>
+  <div class="detail-section">
+    <div class="detail-section-header">
+      <span>客服组长详情数据</span>
+      <span id="pfCount_leader" style="font-size:12px;font-weight:400;color:var(--text2)"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="detail-table">
+        <thead><tr>
+          <th>月份</th><th>姓名</th><th>团队非满达标率</th><th>响应时长达标率</th><th>售后工单处理时长</th><th>培训计划完成率</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
+        </tr></thead>
+        <tbody id="pfTable_leader"><tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 店铺明细板块 -->
+<div class="perf-role-block" id="pfBlock_shopdetail">
+  <style>
+    .shop-group-header{display:flex;align-items:center;gap:12px;padding:10px 14px;background:linear-gradient(135deg,#f8f8f8,#fff);border-radius:8px;margin-bottom:4px;margin-top:12px;border-left:4px solid var(--primary)}
+    .shop-group-name{font-size:14px;font-weight:700}
+    .shop-group-coef{margin-left:auto;font-size:13px;font-weight:700}
+    .shop-row-ok td{background:#fafff8}
+    .shop-row-bad td{background:#fff5f5}
+    .shop-row-warn td{background:#fffdf0}
+    .ns-val-bad{color:#b71c1c;font-weight:700}
+    .ns-val-ok{color:#2e7d32;font-weight:600}
+    .shop-filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+    .shop-filter-bar select{padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none}
+    .shop-summary-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px}
+    .shop-sum-card{background:var(--card);border-radius:8px;padding:10px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);text-align:center}
+    .shop-sum-val{font-size:20px;font-weight:700;margin-top:2px}
+    .shop-sum-label{font-size:11px;color:var(--text2)}
+    .export-btn{background:#217346;color:white;border:none;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600}
+    .export-btn:hover{background:#1a5c37}
+  </style>
+
+  <!-- 筛选栏 -->
+  <div class="shop-filter-bar">
+    <select id="sdMonthSel" onchange="sdRender()">
+      <option value="">全部月份</option>
+    </select>
+    <select id="sdRoleSel" onchange="sdRender()">
+      <option value="">全部岗位</option>
+      <option value="reception">接待客服</option>
+      <option value="workorder">工单客服</option>
+      <option value="leader">客服组长</option>
+    </select>
+    <select id="sdAgentSel" onchange="sdRender()">
+      <option value="">全部客服</option>
+    </select>
+    <select id="sdResultSel" onchange="sdRender()">
+      <option value="">全部结果</option>
+      <option value="bad">仅看超标店铺</option>
+      <option value="ok">仅看达标店铺</option>
+    </select>
+    <button class="export-btn" onclick="sdExportCSV()">📥 导出店铺明细</button>
+  </div>
+
+  <!-- 汇总卡片 -->
+  <div class="shop-summary-cards" id="sdSummaryCards"></div>
+
+  <!-- 明细表格 -->
+  <div class="detail-section">
+    <div class="detail-section-header">
+      <span>各客服店铺明细（按人分组展开）</span>
+      <span id="sdCount" style="font-size:12px;font-weight:400;color:var(--text2)"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="detail-table" id="sdTable">
+        <thead><tr>
+          <th style="min-width:70px">姓名</th>
+          <th style="min-width:180px">店铺</th>
+          <th>非满实际</th>
+          <th>非满标准</th>
+          <th>非满结果</th>
+          <th>质检合格率</th>
+          <th>质检结果</th>
+          <th style="min-width:70px">接待量</th>
+        </tr></thead>
+        <tbody id="sdTableBody"><tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text2)">请先选择月份查看数据</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:12px;padding:10px 14px;background:#fff8e1;border-radius:8px;border:1px solid var(--gold);font-size:12px;color:#666;line-height:1.8">
+  <strong style="color:#B8860B">云端说明：</strong>数据存储在 Supabase 云端，录入后所有人打开链接可实时查看。导出CSV可直接交给人资使用。
+</div>
 </div>
 
 </div><!-- /content -->
@@ -1268,34 +1469,58 @@ const PERF_WEIGHTS = {
 };
 
 const ROLE_LABELS = { reception:'接待客服', workorder:'工单客服', leader:'客服组长' };
-let _perfRecords = [];
-let _editingId = null;
-let _perfInited = false;
 
-function calcPerfCoef(scores, role) {
+// ── 字段定义（用于详情表格列映射）──
+const PF_FIELD_KEYS = {
+  reception: ['nonSat','qc','volume','respTime','reply3m'],
+  workorder: ['procTime','woVolume','solveTime','assist'],
+  leader:    ['teamNonSat','respTime','procTime','training'],
+};
+
+const AVATAR_COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
+let _perfRecords = [];
+let _editingId   = null;
+let _perfInited  = false;
+let _pfRole      = 'reception';
+
+// ── 绩效系数计算 ──
+function calcPerfCoef(scores, role, attend, should) {
   const weights = PERF_WEIGHTS[role] || [];
+  const nonSatRate = parseFloat(scores.nonSat || scores.teamNonSat || 100);
+  // 非满≤60%整体清零
+  if ((role === 'reception' || role === 'leader') && nonSatRate <= 60) return 0;
+  // 工单：售后处理时长≤60%整体清零
+  if (role === 'workorder' && parseFloat(scores.procTime || 100) <= 60) return 0;
+
   let total = 0;
   weights.forEach(w => {
     const rate = parseFloat(scores[w.key] || 0) / 100;
     let contrib = 0;
-    if (w.key === 'volume') {
-      contrib = rate >= 0.8 ? w.weight : 0;
-    } else {
-      contrib = rate >= 0.8 ? w.weight : rate >= 0.6 ? w.weight * (rate / 0.8) : 0;
-    }
+    if (rate <= 0) { contrib = 0; }
+    else if (rate >= 0.8) { contrib = w.weight; }
+    else if (rate > 0.6)  { contrib = w.weight * (rate / 0.8); }
+    else                  { contrib = 0; }
+    // 质检达标率≤60%本项清零
+    if (w.key === 'qc' && rate <= 0.6) contrib = 0;
     total += contrib;
   });
-  const adj = parseFloat(scores.adjustment || 0) / 100;
-  return Math.min(1, Math.max(0, total + adj));
+
+  const adj = parseFloat(scores.adj || 0) / 100;
+  let coef = Math.min(1.2, Math.max(0, total + adj));
+
+  // 出勤系数
+  const a = parseInt(attend || should || 22);
+  const s = parseInt(should || 22);
+  const attendCoef = s > 0 ? (a >= 15 ? 1 : a / s) : 1;
+  return +(coef * attendCoef).toFixed(4);
 }
 
-// ---------- Supabase CRUD ----------
+// ── Supabase CRUD ──
 async function dbLoad() {
   const { data, error } = await _supa.from('perf_records').select('*').order('month', { ascending: false });
   if (error) { console.error('加载失败', error); return []; }
   return data || [];
 }
-
 async function dbSave(rec) {
   const payload = {
     name: rec.name, month: rec.month, role: rec.role,
@@ -1310,264 +1535,512 @@ async function dbSave(rec) {
     return !error;
   }
 }
-
 async function dbDelete(db_id) {
   const { error } = await _supa.from('perf_records').delete().eq('id', db_id);
   return !error;
 }
 
-// ---------- UI ----------
-async function initPerfPage() {
-  if (_perfInited) { renderPerfList(); return; }
-  _perfInited = true;
-  showPerfLoading(true);
-  _perfRecords = await dbLoad();
-  showPerfLoading(false);
-  renderPerfList();
-  renderPerfFormFields();
-}
-
-function showPerfLoading(on) {
-  const el = document.getElementById('perfLoadingBar');
-  if (el) el.style.display = on ? 'block' : 'none';
-}
-
-function showToast(msg, type='success') {
-  const t = document.getElementById('perfToast');
+// ── Toast & Loading ──
+function pfToast(msg, type='success') {
+  const t = document.getElementById('pfToast');
   if (!t) return;
   t.textContent = msg;
   t.style.background = type === 'error' ? '#F44336' : '#4CAF50';
   t.style.display = 'block';
   setTimeout(() => t.style.display = 'none', 2500);
 }
-
-function renderPerfFormFields() {
-  const role = document.getElementById('pf_role')?.value || 'reception';
-  const weights = PERF_WEIGHTS[role] || [];
-  const editRec = _editingId !== null ? _perfRecords.find(r => r.local_id === _editingId) : null;
-  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">';
-  weights.forEach(w => {
-    const val = editRec ? (editRec.scores[w.key] ?? '') : '';
-    html += `<div>
-      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:3px">
-        ${w.label} <span style="color:#aaa">(权重${(w.weight*100).toFixed(0)}% · ${w.note})</span>
-      </label>
-      <input type="number" min="0" max="100" placeholder="店铺达标率 0-100"
-        id="pf_${w.key}" value="${val}"
-        style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:white"
-        oninput="updatePerfPreview()">
-    </div>`;
-  });
-  const adjVal = editRec ? (editRec.scores.adjustment ?? 0) : 0;
-  html += `<div>
-    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:3px">
-      加减分调整 <span style="color:#aaa">(-10 重大事故 / +10 加分项)</span>
-    </label>
-    <input type="number" min="-20" max="20" placeholder="0"
-      id="pf_adjustment" value="${adjVal}"
-      style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;background:white"
-      oninput="updatePerfPreview()">
-  </div>`;
-  html += '</div>';
-  const container = document.getElementById('perfFormFields');
-  if (container) { container.innerHTML = html; updatePerfPreview(); }
+function pfLoading(on) {
+  const el = document.getElementById('pfLoading');
+  if (el) el.style.display = on ? 'block' : 'none';
 }
 
-function updatePerfPreview() {
-  const role = document.getElementById('pf_role')?.value || 'reception';
-  const scores = getFormScores(role);
-  const coef = calcPerfCoef(scores, role);
-  const base = parseFloat(document.getElementById('pf_base')?.value || 1000);
-  const pct = (coef * 100).toFixed(1);
-  const amt = (coef * base).toFixed(0);
-  const color = coef >= 0.9 ? 'var(--pass)' : coef >= 0.7 ? 'var(--warn)' : 'var(--fail)';
-  const el = document.getElementById('perfPreview');
-  if (el) el.innerHTML = `<span style="font-size:22px;font-weight:700;color:${color}">${pct}%</span>
-    <span style="font-size:13px;color:var(--text2);margin-left:8px">→ 实发 ¥${amt}</span>`;
-}
-
-function getFormScores(role) {
-  const weights = PERF_WEIGHTS[role] || [];
-  const scores = {};
-  weights.forEach(w => {
-    const el = document.getElementById('pf_' + w.key);
-    scores[w.key] = el ? parseFloat(el.value || 0) : 0;
-  });
-  scores.adjustment = parseFloat(document.getElementById('pf_adjustment')?.value || 0);
-  return scores;
-}
-
-async function submitPerfForm() {
-  const name = document.getElementById('pf_name')?.value.trim();
-  const month = document.getElementById('pf_month')?.value;
-  const role = document.getElementById('pf_role')?.value;
-  const base = parseFloat(document.getElementById('pf_base')?.value || 1000);
-  const group = document.getElementById('pf_group')?.value.trim() || '';
-  if (!name || !month) { showToast('请填写姓名和月份', 'error'); return; }
-
-  const scores = getFormScores(role);
-  const coef = calcPerfCoef(scores, role);
-
-  const editRec = _editingId !== null ? _perfRecords.find(r => r.local_id === _editingId) : null;
-  const rec = { name, month, role, group, base, scores, coef, db_id: editRec?.db_id || null };
-
-  const btn = document.getElementById('perfSubmitBtn');
-  btn.textContent = '保存中...'; btn.disabled = true;
-
-  const ok = await dbSave(rec);
-  btn.textContent = '保存留档'; btn.disabled = false;
-
-  if (ok) {
-    showToast('✓ 保存成功，数据已同步云端');
-    closePerfForm();
-    showPerfLoading(true);
+// ── 初始化 ──
+async function initPerfPage() {
+  if (_pfRole === undefined) _pfRole = 'reception';
+  if (!_perfInited) {
+    _perfInited = true;
+    pfLoading(true);
     _perfRecords = await dbLoad();
-    showPerfLoading(false);
-    renderPerfList();
-  } else {
-    showToast('保存失败，请检查 Supabase 配置', 'error');
+    pfLoading(false);
   }
+  pfRenderAll();
+  pfRenderFields();
+  // 初始化月份选择器
+  pfRefreshMonthSel();
 }
 
-async function deletePerfRecord(db_id) {
-  if (!confirm('确认删除这条记录？此操作不可撤销。')) return;
-  const ok = await dbDelete(db_id);
-  if (ok) {
-    showToast('已删除');
-    _perfRecords = _perfRecords.filter(r => r.db_id !== db_id);
-    renderPerfList();
-  } else {
-    showToast('删除失败', 'error');
-  }
-}
-
-function editPerfRecord(localId) {
-  _editingId = localId;
-  const rec = _perfRecords.find(r => r.local_id === localId);
-  if (!rec) return;
-  document.getElementById('pf_name').value = rec.name;
-  document.getElementById('pf_month').value = rec.month;
-  document.getElementById('pf_role').value = rec.role;
-  document.getElementById('pf_base').value = rec.base_salary ?? rec.base ?? 1000;
-  document.getElementById('pf_group').value = rec.group_name || rec.group || '';
-  document.getElementById('perfFormWrap').style.display = 'block';
-  renderPerfFormFields();
-  // 回填各指标分数
-  const weights = PERF_WEIGHTS[rec.role] || [];
-  weights.forEach(w => {
-    const el = document.getElementById('pf_' + w.key);
-    if (el && rec.scores) el.value = rec.scores[w.key] ?? '';
-  });
-  const adjEl = document.getElementById('pf_adjustment');
-  if (adjEl && rec.scores) adjEl.value = rec.scores.adjustment ?? 0;
-  updatePerfPreview();
-  document.getElementById('perfFormWrap').scrollIntoView({ behavior: 'smooth' });
-}
-
-function openNewPerfForm() {
-  _editingId = null;
-  document.getElementById('pf_name').value = '';
-  document.getElementById('pf_month').value = '';
-  document.getElementById('pf_role').value = 'reception';
-  document.getElementById('pf_base').value = '1000';
-  document.getElementById('pf_group').value = '';
-  document.getElementById('perfFormWrap').style.display = 'block';
-  renderPerfFormFields();
-}
-
-function closePerfForm() {
-  document.getElementById('perfFormWrap').style.display = 'none';
-  _editingId = null;
-}
-
-function exportPerfCSV() {
-  const mf = document.getElementById('perfMonthFilter')?.value || '';
-  const rf = document.getElementById('perfRoleFilter')?.value || '';
-  let recs = _perfRecords;
-  if (mf) recs = recs.filter(r => r.month === mf);
-  if (rf) recs = recs.filter(r => r.role === rf);
-  if (!recs.length) { showToast('没有可导出的数据', 'error'); return; }
-  const rows = [['月份','姓名','岗位','所属组','绩效基数','绩效系数%','实发绩效(元)']];
-  recs.forEach(r => {
-    const base = r.base_salary ?? r.base ?? 1000;
-    const coef = parseFloat(r.coef || 0);
-    rows.push([r.month, r.name, ROLE_LABELS[r.role]||r.role, r.group_name||r.group||'',
-      base, (coef*100).toFixed(1)+'%', (coef*base).toFixed(0)]);
-  });
-  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
-  a.download = `绩效留档_${mf||'全部'}.csv`; a.click();
-}
-
-function renderPerfList() {
-  const mf = document.getElementById('perfMonthFilter')?.value || '';
-  const rf = document.getElementById('perfRoleFilter')?.value || '';
-  let recs = _perfRecords.map((r, i) => ({ ...r, local_id: i }));
-  if (mf) recs = recs.filter(r => r.month === mf);
-  if (rf) recs = recs.filter(r => r.role === rf);
-
-  // 同步给原始记录加 local_id
-  _perfRecords.forEach((r, i) => r.local_id = i);
-
-  // 更新月份筛选器
+// ── 月份选择器 ──
+function pfRefreshMonthSel() {
   const months = [...new Set(_perfRecords.map(r => r.month))].sort().reverse();
-  const mSel = document.getElementById('perfMonthFilter');
-  if (mSel) {
-    const cur = mSel.value;
-    mSel.innerHTML = '<option value="">全部月份</option>' +
-      months.map(m => `<option value="${m}" ${m===cur?'selected':''}>${m}</option>`).join('');
-  }
+  const sel = document.getElementById('pfMonthSel');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">全部月份</option>' +
+    months.map(m => `<option value="${m}" ${m===cur?'selected':''}>${m}</option>`).join('');
+}
 
-  // 统计卡片
-  const totalAmt = recs.reduce((s, r) => s + parseFloat(r.coef||0) * (r.base_salary??r.base??1000), 0);
-  const avgCoef = recs.length ? recs.reduce((s,r) => s + parseFloat(r.coef||0), 0) / recs.length : 0;
-  const el_count = document.getElementById('perfStatCount');
-  const el_avg   = document.getElementById('perfStatAvg');
-  const el_amt   = document.getElementById('perfStatAmt');
-  if (el_count) el_count.textContent = recs.length;
-  if (el_avg)   el_avg.textContent   = (avgCoef*100).toFixed(1) + '%';
-  if (el_amt)   el_amt.textContent   = '¥' + totalAmt.toFixed(0);
+// ── 筛选变化 ──
+function pfOnFilterChange() { pfRenderAll(); }
 
-  const tbody = document.getElementById('perfArchiveBody');
+function pfGetFiltered() {
+  const mf = document.getElementById('pfMonthSel')?.value || '';
+  const rf = document.getElementById('pfRoleSel')?.value  || '';
+  const nf = (document.getElementById('pfNameSearch')?.value || '').trim();
+  return _perfRecords.filter(r => {
+    if (mf && r.month !== mf) return false;
+    if (rf && r.role  !== rf) return false;
+    if (nf && !r.name.includes(nf)) return false;
+    return true;
+  }).map((r, i) => ({ ...r, local_id: i }));
+}
+
+// ── 渲染全部 ──
+function pfRenderAll() {
+  _perfRecords.forEach((r, i) => r.local_id = i);
+  const filtered = pfGetFiltered();
+  pfRenderKpi(filtered);
+  ['reception','workorder','leader'].forEach(role => {
+    const recs = filtered.filter(r => r.role === role);
+    pfRenderCards(role, recs);
+    pfRenderTable(role, recs);
+  });
+}
+
+// ── KPI 看板 ──
+function pfRenderKpi(recs) {
+  const total = recs.length;
+  const totalAmt = recs.reduce((s, r) => s + parseFloat(r.coef||0) * (r.base_salary||1000), 0);
+  const avgCoef  = total ? recs.reduce((s, r) => s + parseFloat(r.coef||0), 0) / total : 0;
+  const fullCnt  = recs.filter(r => parseFloat(r.coef||0) >= 0.99).length;
+  const zeroCnt  = recs.filter(r => parseFloat(r.coef||0) === 0).length;
+  document.getElementById('pfKpi1').textContent = total;
+  document.getElementById('pfKpi2').textContent = (avgCoef*100).toFixed(1) + '%';
+  document.getElementById('pfKpi3').textContent = '¥' + totalAmt.toFixed(0);
+  document.getElementById('pfKpi4').textContent = fullCnt;
+  document.getElementById('pfKpi4sub').textContent = total ? `占比${(fullCnt/total*100).toFixed(0)}%` : '';
+  document.getElementById('pfKpi5').textContent = zeroCnt;
+}
+
+// ── 人员看板卡片 ──
+function pfRenderCards(role, recs) {
+  const el = document.getElementById('pfCards_' + role);
+  if (!el) return;
+  if (!recs.length) { el.innerHTML = ''; return; }
+
+  // 按月份/姓名聚合最新一条
+  const byName = {};
+  recs.forEach(r => {
+    if (!byName[r.name] || r.month > byName[r.name].month) byName[r.name] = r;
+  });
+
+  el.innerHTML = Object.values(byName).sort((a,b) => parseFloat(b.coef||0)-parseFloat(a.coef||0))
+    .map((r, idx) => {
+      const coef  = parseFloat(r.coef || 0);
+      const base  = r.base_salary || 1000;
+      const amt   = (coef * base).toFixed(0);
+      const pct   = (coef * 100).toFixed(1);
+      const cls   = coef >= 0.99 ? 'full' : coef > 0 ? 'partial' : 'zero';
+      const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+      const weights = PERF_WEIGHTS[role] || [];
+      const scores  = r.scores || {};
+
+      const metricsHtml = weights.map(w => {
+        const val = parseFloat(scores[w.key] || 0);
+        const ok  = val >= 80;
+        return `<div class="apc-metric">
+          <span class="apc-metric-label">${w.label.replace('达标率','').replace('合格率','').replace('达成率','')}</span>
+          <span class="apc-metric-val ${ok?'ok':'bad'}">${val}%</span>
+        </div>`;
+      }).join('');
+
+      return `<div class="agent-perf-card ${cls}">
+        <div class="apc-header">
+          <div class="apc-avatar" style="background:${color}">${r.name[0]}</div>
+          <div>
+            <div class="apc-name">${r.name}</div>
+            <div class="apc-role">${r.month} · ${r.group_name||'-'}</div>
+          </div>
+          <div class="apc-amount ${cls}">¥${amt}</div>
+        </div>
+        <div class="apc-bar-wrap">
+          <div class="apc-bar"><div class="apc-bar-fill" style="width:${pct}%;background:${coef>=0.99?'#4CAF50':coef>0?'#FF9800':'#F44336'}"></div></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:2px"><span>绩效系数</span><span style="font-weight:700">${pct}%</span></div>
+        </div>
+        <div class="apc-metrics">${metricsHtml}</div>
+        ${coef===0 ? '<div style="margin-top:6px;font-size:11px;color:var(--fail);font-weight:600">⚠️ 本月整体清零</div>' : ''}
+      </div>`;
+    }).join('');
+}
+
+// ── 详情表格 ──
+function pfRenderTable(role, recs) {
+  const tbody = document.getElementById('pfTable_' + role);
+  const countEl = document.getElementById('pfCount_' + role);
   if (!tbody) return;
+  if (countEl) countEl.textContent = `共 ${recs.length} 条`;
   if (!recs.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:32px">暂无留档记录，点击「新增绩效记录」开始录入</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="15" class="empty-state"><div class="empty-state-icon">📭</div><p>暂无数据，点击「录入绩效」开始留档</p></td></tr>`;
     return;
   }
 
+  const weights = PERF_WEIGHTS[role] || [];
   tbody.innerHTML = recs.map(r => {
-    const base = r.base_salary ?? r.base ?? 1000;
-    const coef = parseFloat(r.coef || 0);
-    const pct  = (coef * 100).toFixed(1);
-    const amt  = (coef * base).toFixed(0);
-    const color = coef >= 0.9 ? 'var(--pass)' : coef >= 0.7 ? 'var(--warn)' : 'var(--fail)';
-    // 各指标达标率简要显示
-    const weights = PERF_WEIGHTS[r.role] || [];
-    const detailHtml = weights.map(w => {
-      const v = r.scores ? parseFloat(r.scores[w.key]||0) : 0;
-      const ok = w.key === 'volume' ? v >= 80 : v >= 80;
-      return `<span style="font-size:11px;padding:1px 6px;border-radius:3px;margin:1px;display:inline-block;
-        background:${ok?'#E8F5E9':'#FFEBEE'};color:${ok?'#2E7D32':'#B71C1C'}">${w.label.replace('达标率','').replace('合格率','')}${v}%</span>`;
+    const coef  = parseFloat(r.coef || 0);
+    const base  = r.base_salary || 1000;
+    const amt   = (coef * base).toFixed(0);
+    const pct   = (coef * 100).toFixed(1);
+    const cls   = coef >= 0.99 ? 'full' : coef > 0 ? 'partial' : 'zero';
+    const scores = r.scores || {};
+    const attend = scores.attend || '—';
+    const should = scores.should || '—';
+    const adj    = scores.adj || 0;
+
+    const metricsCells = weights.map(w => {
+      const val = parseFloat(scores[w.key] || 0);
+      const ok  = val >= 80;
+      return `<td><span class="indicator-dot ${ok?'dot-ok':'dot-bad'}"></span>${val}%</td>`;
     }).join('');
+
+    const attendCell = `<td>${attend}/${should}</td>`;
+    const adjCell    = `<td style="color:${adj>0?'var(--pass)':adj<0?'var(--fail)':'var(--text2)'}">${adj>0?'+':''}${adj}%</td>`;
+
     return `<tr>
-      <td>${r.month}</td>
+      <td style="white-space:nowrap">${r.month}</td>
       <td><strong>${r.name}</strong></td>
-      <td><span style="font-size:11px;background:#f0f0f0;padding:2px 8px;border-radius:4px">${ROLE_LABELS[r.role]||r.role}</span></td>
-      <td>${r.group_name||r.group||'-'}</td>
+      ${role !== 'leader' ? `<td>${r.group_name||'-'}</td>` : ''}
+      ${metricsCells}
+      ${attendCell}
+      ${adjCell}
+      <td><strong style="color:${coef>=0.99?'var(--pass)':coef>0?'var(--warn)':'var(--fail)'}">${pct}%</strong></td>
       <td>¥${base}</td>
-      <td><strong style="color:${color}">${pct}%</strong></td>
-      <td><strong>¥${amt}</strong></td>
-      <td style="max-width:260px">${detailHtml}</td>
-      <td>
-        <button onclick="editPerfRecord(${r.local_id})"
-          style="padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;font-size:12px;margin-right:4px">编辑</button>
-        <button onclick="deletePerfRecord('${r.id}')"
-          style="padding:3px 10px;border:1px solid #ffcdd2;border-radius:4px;background:#fff8f8;cursor:pointer;font-size:12px;color:var(--fail)">删除</button>
+      <td><span class="perf-badge ${cls}">¥${amt}</span></td>
+      <td style="font-size:12px;color:var(--text2);max-width:120px">${scores.remark||'-'}</td>
+      <td style="white-space:nowrap">
+        <button onclick="pfEdit(${r.local_id})" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;font-size:12px;margin-right:4px">编辑</button>
+        <button onclick="pfDelete('${r.id}')" style="padding:3px 8px;border:1px solid #ffcdd2;border-radius:4px;background:#fff8f8;cursor:pointer;font-size:12px;color:var(--fail)">删除</button>
       </td>
     </tr>`;
   }).join('');
 }
+
+// ── 岗位Tab切换 ──
+function pfSwitchRole(role) {
+  _pfRole = role;
+  document.querySelectorAll('.perf-role-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.perf-role-block').forEach(b => b.classList.remove('active'));
+  const tabs = document.querySelectorAll('.perf-role-tab');
+  const order = ['reception','workorder','leader','shopdetail'];
+  tabs[order.indexOf(role)]?.classList.add('active');
+  document.getElementById('pfBlock_' + role)?.classList.add('active');
+  if (role === 'shopdetail') {
+    sdSyncFilters();
+    sdRender();
+  } else {
+    // 同步岗位筛选器
+    const sel = document.getElementById('pfRoleSel');
+    if (sel && role !== 'shopdetail') { sel.value = role; pfRenderAll(); }
+  }
+}
+
+// ── 店铺明细函数 ──
+const NON_SAT_STD_MAP = {
+  '吉列个护用品旗舰店': 0.10, '吉列维纳斯个护用品旗舰店': 0.10,
+  '舒肤佳官方旗舰店': 0.10, '沙宣官方旗舰店': 0.20,
+  '爱他美奶粉海外旗舰店': 0.08, '爱他美至熠海外旗舰店': 0.08,
+  'a2 GENESIS海外旗舰店': 0.20, 'a2紫曜海外旗舰店': 0.20,
+  '麦当劳官方旗舰店': 0.20, 'STOKKE官方旗舰店': 0.20,
+  '怡宝官方旗舰店': 0.20,
+};
+
+function sdSyncFilters() {
+  // 同步月份
+  const months = [...new Set(_perfRecords.map(r => r.month))].sort().reverse();
+  const msel = document.getElementById('sdMonthSel');
+  if (msel) {
+    const cur = msel.value;
+    msel.innerHTML = '<option value="">全部月份</option>' +
+      months.map(m => `<option value="${m}" ${m===cur?'selected':''}>${m}</option>`).join('');
+    // 默认选最新月份
+    if (!cur && months.length) msel.value = months[0];
+  }
+  // 同步客服列表
+  const agents = [...new Set(_perfRecords.map(r => r.name))].sort();
+  const asel = document.getElementById('sdAgentSel');
+  if (asel) {
+    const cur = asel.value;
+    asel.innerHTML = '<option value="">全部客服</option>' +
+      agents.map(a => `<option value="${a}" ${a===cur?'selected':''}>${a}</option>`).join('');
+  }
+}
+
+function sdGetFiltered() {
+  const mf = document.getElementById('sdMonthSel')?.value  || '';
+  const rf = document.getElementById('sdRoleSel')?.value   || '';
+  const af = document.getElementById('sdAgentSel')?.value  || '';
+  return _perfRecords.filter(r => {
+    if (mf && r.month !== mf) return false;
+    if (rf && r.role  !== rf) return false;
+    if (af && r.name  !== af) return false;
+    // 只渲染有店铺明细的记录
+    return (r.scores?.shop_details?.length > 0);
+  });
+}
+
+function sdRender() {
+  const recs = sdGetFiltered();
+  const resultFilter = document.getElementById('sdResultSel')?.value || '';
+
+  // 展开所有店铺行
+  let allShops = [];
+  recs.forEach(r => {
+    const details = r.scores?.shop_details || [];
+    details.forEach(d => {
+      const std = NON_SAT_STD_MAP[d.shop] || 0.20;
+      const nsOk = d.nonSat <= std;
+      const qcOk = d.qc >= 0.90;
+      allShops.push({ ...d, name: r.name, month: r.month, role: r.role,
+        group: r.group_name, coef: r.coef, std, nsOk, qcOk });
+    });
+  });
+
+  // 结果筛选
+  if (resultFilter === 'bad')  allShops = allShops.filter(s => !s.nsOk || !s.qcOk);
+  if (resultFilter === 'ok')   allShops = allShops.filter(s => s.nsOk && s.qcOk);
+
+  // 汇总卡片
+  const totalShops = allShops.length;
+  const badNs  = allShops.filter(s => !s.nsOk).length;
+  const badQc  = allShops.filter(s => !s.qcOk).length;
+  const okAll  = allShops.filter(s => s.nsOk && s.qcOk).length;
+  document.getElementById('sdSummaryCards').innerHTML = `
+    <div class="shop-sum-card"><div class="shop-sum-label">店铺总条数</div><div class="shop-sum-val">${totalShops}</div></div>
+    <div class="shop-sum-card"><div class="shop-sum-label">非满超标店铺</div><div class="shop-sum-val" style="color:var(--fail)">${badNs}</div></div>
+    <div class="shop-sum-card"><div class="shop-sum-label">质检未达标店铺</div><div class="shop-sum-val" style="color:var(--warn)">${badQc}</div></div>
+    <div class="shop-sum-card"><div class="shop-sum-label">全部达标店铺</div><div class="shop-sum-val" style="color:var(--pass)">${okAll}</div></div>
+    <div class="shop-sum-card"><div class="shop-sum-label">非满达标率</div><div class="shop-sum-val" style="color:${badNs===0?'var(--pass)':'var(--fail)'}">${totalShops?((totalShops-badNs)/totalShops*100).toFixed(1)+'%':'—'}</div></div>`;
+
+  document.getElementById('sdCount').textContent = `共 ${totalShops} 条`;
+
+  if (!allShops.length) {
+    document.getElementById('sdTableBody').innerHTML =
+      `<tr><td colspan="8" class="empty-state"><div class="empty-state-icon">📭</div><p>暂无店铺明细数据<br><small>录入绩效时请填写店铺明细</small></p></td></tr>`;
+    return;
+  }
+
+  // 按人分组渲染
+  const byAgent = {};
+  allShops.forEach(s => {
+    const key = s.name + '|' + s.month;
+    if (!byAgent[key]) byAgent[key] = { name: s.name, month: s.month, group: s.group, coef: s.coef, shops: [] };
+    byAgent[key].shops.push(s);
+  });
+
+  let html = '';
+  Object.values(byAgent).forEach(agent => {
+    const coef = parseFloat(agent.coef || 0);
+    const coefColor = coef >= 0.99 ? 'var(--pass)' : coef > 0 ? 'var(--warn)' : 'var(--fail)';
+    const badCnt = agent.shops.filter(s => !s.nsOk || !s.qcOk).length;
+    html += `<tr>
+      <td colspan="8" style="padding:0">
+        <div class="shop-group-header">
+          <div style="width:36px;height:36px;border-radius:50%;background:${coef>=0.99?'#4CAF50':coef>0?'#FF9800':'#F44336'};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:15px;flex-shrink:0">${agent.name[0]}</div>
+          <div>
+            <div class="shop-group-name">${agent.name}</div>
+            <div style="font-size:11px;color:var(--text2)">${agent.month} · ${agent.group||'—'} · ${agent.shops.length}个店铺${badCnt>0?` · <span style="color:var(--fail)">${badCnt}个超标</span>`:' · <span style="color:var(--pass)">全部达标</span>'}</div>
+          </div>
+          <div class="shop-group-coef" style="color:${coefColor}">绩效系数 ${(coef*100).toFixed(1)}%</div>
+        </div>
+      </td>
+    </tr>`;
+    agent.shops.forEach(s => {
+      const rowCls = (!s.nsOk || !s.qcOk) ? 'shop-row-bad' : 'shop-row-ok';
+      html += `<tr class="${rowCls}">
+        <td style="color:var(--text2);font-size:12px"></td>
+        <td style="font-weight:500">${s.shop}</td>
+        <td class="${s.nsOk?'ns-val-ok':'ns-val-bad'}">${(s.nonSat*100).toFixed(1)}%</td>
+        <td style="color:var(--text2)">≤${(s.std*100).toFixed(0)}%</td>
+        <td>${s.nsOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 超标</span>'}</td>
+        <td class="${s.qcOk?'ns-val-ok':'ns-val-bad'}">${(s.qc*100).toFixed(0)}%</td>
+        <td>${s.qcOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 未达标</span>'}</td>
+        <td style="text-align:right">${(s.volume||0).toLocaleString()}</td>
+      </tr>`;
+    });
+    // 分隔行
+    html += `<tr><td colspan="8" style="padding:4px;background:#f5f5f5;border:none"></td></tr>`;
+  });
+
+  document.getElementById('sdTableBody').innerHTML = html;
+}
+
+function sdExportCSV() {
+  const recs = sdGetFiltered();
+  if (!recs.length) { pfToast('暂无店铺明细数据', 'error'); return; }
+  const rows = [['月份','姓名','所属组','店铺','非满实际','非满标准','非满结果','质检合格率','质检结果','接待量']];
+  recs.forEach(r => {
+    (r.scores?.shop_details || []).forEach(d => {
+      const std = NON_SAT_STD_MAP[d.shop] || 0.20;
+      rows.push([r.month, r.name, r.group_name||'',
+        d.shop,
+        (d.nonSat*100).toFixed(1)+'%', (std*100).toFixed(0)+'%',
+        d.nonSat <= std ? '达标' : '超标',
+        (d.qc*100).toFixed(0)+'%',
+        d.qc >= 0.90 ? '达标' : '未达标',
+        d.volume || 0]);
+    });
+  });
+  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `店铺明细_${document.getElementById('sdMonthSel')?.value||'全部'}.csv`;
+  a.click();
+}
+
+// ── 表单 ──
+function pfOpenForm() {
+  _editingId = null;
+  document.getElementById('pf_name').value  = '';
+  document.getElementById('pf_month').value = new Date().toISOString().slice(0,7);
+  document.getElementById('pf_role').value  = _pfRole || 'reception';
+  document.getElementById('pf_group').value = '';
+  document.getElementById('pf_base').value  = '1000';
+  document.getElementById('pf_attend').value= '22';
+  document.getElementById('pf_should').value= '22';
+  document.getElementById('pf_adj').value   = '0';
+  document.getElementById('pf_remark').value= '';
+  document.getElementById('pfFormWrap').style.display = 'block';
+  pfRenderFields();
+  document.getElementById('pfFormWrap').scrollIntoView({ behavior:'smooth' });
+}
+
+function pfCloseForm() {
+  document.getElementById('pfFormWrap').style.display = 'none';
+  _editingId = null;
+}
+
+function pfRenderFields() {
+  const role = document.getElementById('pf_role')?.value || 'reception';
+  const weights = PERF_WEIGHTS[role] || [];
+  const editRec = _editingId !== null ? _perfRecords.find(r => r.local_id === _editingId) : null;
+  const scores  = editRec?.scores || {};
+  document.getElementById('pfDynFields').innerHTML = weights.map(w => `
+    <div class="pf-field">
+      <label>${w.label} <span style="color:#aaa;font-size:11px">(${(w.weight*100).toFixed(0)}% · ${w.note})</span></label>
+      <input type="number" min="0" max="100" id="pfi_${w.key}" value="${scores[w.key]||''}" placeholder="0–100" oninput="pfUpdatePreview()">
+    </div>`).join('');
+  if (editRec) {
+    document.getElementById('pf_attend').value = scores.attend || '22';
+    document.getElementById('pf_should').value = scores.should || '22';
+    document.getElementById('pf_adj').value    = scores.adj    || '0';
+    document.getElementById('pf_remark').value = scores.remark || '';
+  }
+  pfUpdatePreview();
+}
+
+function pfUpdatePreview() {
+  const role = document.getElementById('pf_role')?.value || 'reception';
+  const scores = pfGetScores(role);
+  const attend = document.getElementById('pf_attend')?.value || '22';
+  const should = document.getElementById('pf_should')?.value || '22';
+  const coef   = calcPerfCoef(scores, role, attend, should);
+  const base   = parseFloat(document.getElementById('pf_base')?.value || 1000);
+  const adj    = parseFloat(scores.adj || 0);
+  const attendCoef = parseInt(should) > 0 ? (parseInt(attend) >= 15 ? 1 : parseInt(attend)/parseInt(should)) : 1;
+  document.getElementById('pvCoef').textContent   = (coef / attendCoef * 100).toFixed(1) + '%';
+  document.getElementById('pvAttend').textContent = attendCoef >= 1 ? '全额' : (attendCoef*100).toFixed(0)+'%';
+  document.getElementById('pvAdj').textContent    = (adj > 0 ? '+' : '') + adj + '%';
+  const amt = (coef * base).toFixed(0);
+  const color = coef >= 0.9 ? 'var(--pass)' : coef > 0 ? 'var(--warn)' : 'var(--fail)';
+  document.getElementById('pvAmt').textContent = '¥' + amt;
+  document.getElementById('pvAmt').style.color = color;
+}
+
+function pfGetScores(role) {
+  const weights = PERF_WEIGHTS[role] || [];
+  const scores  = {};
+  weights.forEach(w => {
+    const el = document.getElementById('pfi_' + w.key);
+    scores[w.key] = el ? parseFloat(el.value || 0) : 0;
+  });
+  scores.adj    = parseFloat(document.getElementById('pf_adj')?.value    || 0);
+  scores.attend = document.getElementById('pf_attend')?.value || '22';
+  scores.should = document.getElementById('pf_should')?.value || '22';
+  scores.remark = document.getElementById('pf_remark')?.value || '';
+  return scores;
+}
+
+async function pfSubmit() {
+  const name  = document.getElementById('pf_name')?.value.trim();
+  const month = document.getElementById('pf_month')?.value;
+  const role  = document.getElementById('pf_role')?.value;
+  const base  = parseFloat(document.getElementById('pf_base')?.value || 1000);
+  const group = document.getElementById('pf_group')?.value.trim() || '';
+  const attend= document.getElementById('pf_attend')?.value || '22';
+  const should= document.getElementById('pf_should')?.value || '22';
+  if (!name || !month) { pfToast('请填写姓名和月份', 'error'); return; }
+  const scores = pfGetScores(role);
+  const coef   = calcPerfCoef(scores, role, attend, should);
+  const editRec = _editingId !== null ? _perfRecords.find(r => r.local_id === _editingId) : null;
+  const rec = { name, month, role, group, base, scores, coef, db_id: editRec?.id || null };
+  const btn = document.getElementById('pfSubmitBtn');
+  btn.textContent = '保存中...'; btn.disabled = true;
+  const ok = await dbSave(rec);
+  btn.textContent = '保存留档'; btn.disabled = false;
+  if (ok) {
+    pfToast('✓ 保存成功，已同步云端');
+    pfCloseForm();
+    pfLoading(true);
+    _perfRecords = await dbLoad();
+    pfLoading(false);
+    pfRefreshMonthSel();
+    pfRenderAll();
+  } else {
+    pfToast('保存失败，请检查 Supabase 配置', 'error');
+  }
+}
+
+async function pfDelete(db_id) {
+  if (!confirm('确认删除这条记录？此操作不可撤销。')) return;
+  const ok = await dbDelete(db_id);
+  if (ok) {
+    pfToast('已删除');
+    _perfRecords = _perfRecords.filter(r => r.id !== db_id);
+    pfRenderAll();
+  } else { pfToast('删除失败', 'error'); }
+}
+
+function pfEdit(localId) {
+  _editingId = localId;
+  const rec = _perfRecords.find(r => r.local_id === localId);
+  if (!rec) return;
+  document.getElementById('pf_name').value  = rec.name;
+  document.getElementById('pf_month').value = rec.month;
+  document.getElementById('pf_role').value  = rec.role;
+  document.getElementById('pf_base').value  = rec.base_salary || 1000;
+  document.getElementById('pf_group').value = rec.group_name || '';
+  document.getElementById('pfFormWrap').style.display = 'block';
+  pfRenderFields();
+  document.getElementById('pfFormWrap').scrollIntoView({ behavior:'smooth' });
+}
+
+function pfExportCSV() {
+  const filtered = pfGetFiltered();
+  if (!filtered.length) { pfToast('没有可导出的数据', 'error'); return; }
+  const rows = [['月份','姓名','岗位','所属组','绩效基数','出勤','绩效系数%','实发(元)','备注']];
+  filtered.forEach(r => {
+    const coef = parseFloat(r.coef || 0);
+    const base = r.base_salary || 1000;
+    const s = r.scores || {};
+    rows.push([r.month, r.name, ROLE_LABELS[r.role]||r.role, r.group_name||'',
+      base, `${s.attend||''}/${s.should||''}`, (coef*100).toFixed(1)+'%',
+      (coef*base).toFixed(0), s.remark||'']);
+  });
+  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `绩效留档_${document.getElementById('pfMonthSel')?.value||'全部'}.csv`;
+  a.click();
+}
+
 </script>
 </body>
 </html>
