@@ -209,7 +209,6 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="nav-tab active" onclick="switchTab('dashboard')">📊 质检概览</div>
   <div class="nav-tab" onclick="switchTab('detail')">📋 质检明细</div>
   <div class="nav-tab" onclick="switchTab('agent')">👤 客服质检汇总</div>
-  <div class="nav-tab" onclick="switchTab('issue')">⚠️ 问题分析</div>
   <div class="nav-tab" onclick="switchTab('sop')">📄 质检SOP</div>
   <div class="nav-tab" onclick="switchTab('shopflow')">🏪 店铺流程</div>
   <div class="nav-tab" onclick="switchTab('scheme')">📐 绩效方案</div>
@@ -243,8 +242,15 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 <!-- 质检明细页 -->
 <div class="page" id="page-detail">
   <div class="filter-bar">
-    <label>搜索：</label>
-    <input type="text" id="searchInput" placeholder="会话ID / 用户名 / 场景..." oninput="applyFilters()">
+    <label>月份：</label>
+    <select id="monthFilter" onchange="applyFilters()">
+      <option value="">全部月份</option>
+      <option value="2026-04" selected>2026年4月</option>
+    </select>
+    <label>日期：</label>
+    <select id="dateFilter" onchange="applyFilters()">
+      <option value="">全部日期</option>
+    </select>
     <label>店铺：</label>
     <select id="shopFilter" onchange="applyFilters()">
       <option value="">全部店铺</option>
@@ -253,22 +259,11 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     <select id="agentFilter" onchange="applyFilters()">
       <option value="">全部客服</option>
     </select>
-    <label>日期：</label>
-    <select id="dateFilter" onchange="applyFilters()">
-      <option value="">全部日期</option>
-    </select>
-    <label>评价：</label>
-    <select id="evalFilter" onchange="applyFilters()">
-      <option value="">全部评价</option>
-      <option value="差评">差评</option>
-      <option value="正常">正常</option>
-    </select>
-    <label>得分：</label>
-    <select id="scoreFilter" onchange="applyFilters()">
-      <option value="">全部得分</option>
-      <option value="low">低于85分</option>
-      <option value="mid">85-94分</option>
-      <option value="high">95分以上</option>
+    <label>结果：</label>
+    <select id="passFilter" onchange="applyFilters()">
+      <option value="">全部</option>
+      <option value="pass">✅ 合格</option>
+      <option value="fail">❌ 不合格</option>
     </select>
     <button class="btn-clear" onclick="clearFilters()">清除筛选</button>
     <div class="filter-count" id="filterCount"></div>
@@ -278,13 +273,14 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       <table id="detailTable">
         <thead>
           <tr>
-            <th style="width:40px">#</th>
-            <th>日期</th>
-            <th>店铺</th>
-            <th>会话ID</th>
-            <th>接待客服</th>
+            <th style="width:36px">#</th>
+            <th style="min-width:100px">日期</th>
+            <th style="min-width:100px">店铺</th>
+            <th style="min-width:130px">会话ID</th>
+            <th>客服</th>
             <th>问题场景</th>
             <th>会话分类</th>
+            <th>结果</th>
             <th>扣分维度</th>
             <th style="min-width:200px">问题描述</th>
           </tr>
@@ -295,36 +291,49 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   </div>
 </div>
 
-<!-- 客服绩效页 -->
+<!-- 客服质检汇总页 -->
 <div class="page" id="page-agent">
-  <div class="agent-grid" id="agentGrid"></div>
-  <div class="section" style="margin-top:20px">
-    <div class="section-header"><div class="section-title">本期下周抽检配额建议</div></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>客服</th><th>本期平均分</th><th>本期质检条数</th><th>等级</th><th>下周建议抽检条数</th><th>重点关注场景</th></tr></thead>
-        <tbody id="quotaBody"></tbody>
-      </table>
-    </div>
-  </div>
+<style>
+  .aq-wrap{overflow-x:auto}
+  .aq-table{border-collapse:collapse;font-size:13px;min-width:100%}
+  .aq-table th{background:#f8f8f8;padding:9px 14px;text-align:center;font-weight:600;color:var(--text2);border:1px solid var(--border);white-space:nowrap;position:sticky;top:0;z-index:2}
+  .aq-table th.name-col{text-align:left;position:sticky;left:0;z-index:3;background:#f8f8f8}
+  .aq-table td{padding:8px 14px;border:1px solid #f0f0f0;text-align:center;vertical-align:middle}
+  .aq-table td.name-col{text-align:left;font-weight:700;white-space:nowrap;position:sticky;left:0;background:white;z-index:1;border-right:2px solid var(--border)}
+  .aq-table tr:hover td{background:#fafafa}
+  .aq-cell-ok{color:var(--pass);font-weight:600}
+  .aq-cell-warn{color:var(--warn);font-weight:600}
+  .aq-cell-bad{color:var(--fail);font-weight:700}
+  .aq-cell-empty{color:#ccc;font-size:11px}
+  .aq-total-row td{background:#f8f8f8;font-weight:700;border-top:2px solid var(--border)}
+  .aq-total-row td.name-col{background:#f8f8f8}
+  .aq-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .aq-badge-ok{background:#e8f5e9;color:#2e7d32}
+  .aq-badge-bad{background:#fdecea;color:#b71c1c}
+  .aq-filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .aq-filter-bar select{padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none}
+</style>
+
+<!-- 汇总卡片 -->
+<div id="agentGrid"></div>
+
+<!-- 筛选 -->
+<div class="aq-filter-bar" style="margin-top:16px">
+  <select id="aqViewSel" onchange="renderAgentMatrix()">
+    <option value="rate">显示合格率</option>
+    <option value="count">显示质检条数</option>
+    <option value="both">显示条数/合格率</option>
+  </select>
+  <span style="font-size:12px;color:var(--text2)">绿色≥90% 橙色80-89% 红色&lt;80% 灰色无数据</span>
 </div>
 
-<!-- 问题分析页 -->
-<div class="page" id="page-issue">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-    <div class="section">
-      <div class="section-header"><div class="section-title">扣分项频次排行</div></div>
-      <div id="issueRankList"></div>
-    </div>
-    <div class="section">
-      <div class="section-header"><div class="section-title">维度扣分分布</div></div>
-      <div class="chart-container"><canvas id="dimChart"></canvas></div>
-    </div>
-  </div>
-  <div class="section">
-    <div class="section-header"><div class="section-title">各维度标准话术库</div></div>
-    <div id="scriptLibrary"></div>
-  </div>
+<!-- 每人×每店铺矩阵表 -->
+<div class="aq-wrap">
+  <table class="aq-table" id="agentMatrix">
+    <thead id="aqHead"></thead>
+    <tbody id="aqBody"></tbody>
+  </table>
+</div>
 </div>
 
 <!-- 店铺流程页 -->
@@ -1221,174 +1230,174 @@ window.onload = function() {
   initDetailPage();
   // 初始化客服页
   initAgentPage();
-  // 初始化问题页
-  initIssuePage();
 };
 
 // ============ 明细页 ============
 function initDetailPage() {
   const sessions = QC_SESSIONS || [];
-  const shops  = [...new Set(sessions.map(s => s.shop||'').filter(Boolean))].sort();
-  const agents = [...new Set(sessions.map(s => s.agent))].sort();
-  const dates  = [...new Set(sessions.map(s => s.date))].sort();
-  const shopSel  = document.getElementById('shopFilter');
-  const agentSel = document.getElementById('agentFilter');
-  const dateSel  = document.getElementById('dateFilter');
-  shops.forEach(sh  => { const o=document.createElement('option'); o.value=sh;  o.textContent=sh;  shopSel.appendChild(o); });
-  agents.forEach(a  => { const o=document.createElement('option'); o.value=a;   o.textContent=a;   agentSel.appendChild(o); });
-  dates.forEach(d   => { const o=document.createElement('option'); o.value=d;   o.textContent=d;   dateSel.appendChild(o); });
+  const shops  = [...new Set(sessions.map(s=>s.shop).filter(Boolean))].sort();
+  const agents = [...new Set(sessions.map(s=>s.agent).filter(Boolean))].sort();
+  const dates  = [...new Set(sessions.map(s=>s.date).filter(Boolean))].sort();
+  shops.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('shopFilter').appendChild(o); });
+  agents.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('agentFilter').appendChild(o); });
+  dates.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('dateFilter').appendChild(o); });
   renderDetailTable(sessions);
 }
 
 function applyFilters() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const shop   = document.getElementById('shopFilter').value;
-  const agent  = document.getElementById('agentFilter').value;
-  const date   = document.getElementById('dateFilter').value;
-  const sessions = QC_SESSIONS || [];
-  let filtered = sessions.filter(s => {
-    if (search && !s.id?.includes(search) && !s.agent?.includes(search) && !s.scenario?.toLowerCase().includes(search) && !(s.shop||'').includes(search)) return false;
-    if (shop  && (s.shop||'') !== shop)  return false;
-    if (agent && s.agent !== agent)      return false;
-    if (date  && s.date  !== date)       return false;
+  const month = document.getElementById('monthFilter')?.value || '';
+  const date  = document.getElementById('dateFilter')?.value  || '';
+  const shop  = document.getElementById('shopFilter')?.value  || '';
+  const agent = document.getElementById('agentFilter')?.value || '';
+  const pass  = document.getElementById('passFilter')?.value  || '';
+  let filtered = (QC_SESSIONS||[]).filter(s => {
+    if (month && s.month !== month) return false;
+    if (date  && s.date  !== date)  return false;
+    if (shop  && s.shop  !== shop)  return false;
+    if (agent && s.agent !== agent) return false;
+    if (pass === 'pass' && !s.pass) return false;
+    if (pass === 'fail' && s.pass)  return false;
     return true;
   });
   renderDetailTable(filtered);
 }
 
 function clearFilters() {
-  document.getElementById('searchInput').value = '';
-  document.getElementById('shopFilter').value  = '';
-  document.getElementById('agentFilter').value = '';
-  document.getElementById('dateFilter').value  = '';
-  document.getElementById('evalFilter').value  = '';
-  document.getElementById('scoreFilter').value = '';
+  ['dateFilter','shopFilter','agentFilter','passFilter'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const mf = document.getElementById('monthFilter'); if (mf) mf.value = '2026-04';
   renderDetailTable(QC_SESSIONS || []);
 }
 
 function renderDetailTable(sessions) {
   document.getElementById('filterCount').textContent = `显示 ${sessions.length} / ${(QC_SESSIONS||[]).length} 条`;
   const tbody = document.getElementById('detailBody');
-  tbody.innerHTML = sessions.length === 0 ?
-    `<tr><td colspan="9"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>` :
-    sessions.map((s, i) => `
-      <tr class="bad-review">
-        <td style="color:var(--text2);font-size:12px">${i+1}</td>
-        <td style="font-size:12px;white-space:nowrap">${s.date}</td>
-        <td><span style="font-size:11px;background:#f0f0f0;padding:2px 6px;border-radius:4px">${s.shop||'—'}</span></td>
-        <td style="font-size:11px;color:var(--text2);word-break:break-all;max-width:130px">${s.id}</td>
-        <td>${getAgentTag(s.agent)}</td>
-        <td style="white-space:nowrap">${s.scenario}</td>
-        <td><span class="tag tag-bad">${s.evaluation}</span></td>
-        <td><span class="tag tag-dim1">${s.dim}</span></td>
-        <td style="font-size:12px;color:#555;max-width:200px">${s.issue}</td>
-      </tr>`).join('');
+  if (!sessions.length) {
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = sessions.map((s, i) => {
+    const rowCls = !s.pass ? 'bad-review' : '';
+    const passTag = s.pass
+      ? '<span style="color:var(--pass);font-weight:600">✅ 合格</span>'
+      : '<span style="color:var(--fail);font-weight:600">❌ 不合格</span>';
+    const dimTag = s.dim && s.dim !== '无扣分' && s.dim !== 'nan'
+      ? `<span class="tag tag-dim1" style="font-size:11px">${s.dim}</span>` : '—';
+    const issue = s.issue && s.issue !== 'nan' ? s.issue : '—';
+    return `<tr class="${rowCls}">
+      <td style="color:var(--text2);font-size:12px">${i+1}</td>
+      <td style="white-space:nowrap;font-size:12px">${s.date}</td>
+      <td><span style="font-size:11px;background:#f0f0f0;padding:2px 6px;border-radius:4px">${s.shop}</span></td>
+      <td style="font-size:10px;color:var(--text2);max-width:120px;word-break:break-all">${s.id}</td>
+      <td>${getAgentTag(s.agent)}</td>
+      <td style="font-size:12px">${s.scenario||'—'}</td>
+      <td><span class="tag ${s.type?.includes('差')?'tag-bad':'tag-normal'}" style="font-size:11px">${s.type||'—'}</span></td>
+      <td>${passTag}</td>
+      <td>${dimTag}</td>
+      <td style="font-size:12px;color:#555;max-width:220px">${issue}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ============ 客服质检汇总页 ============
 function initAgentPage() {
-  const agents = AGENT_QC || [];
-  document.getElementById('agentGrid').innerHTML = agents.sort((a,b)=>b.rate-a.rate).map((a, idx) => {
-    const color = a.rate >= 90 ? 'var(--pass)' : 'var(--fail)';
-    const bg    = a.rate >= 90 ? '#4CAF50'      : '#F44336';
-    const level = a.rate >= 95 ? '优秀' : a.rate >= 90 ? '合格' : '待改进';
-    const lvlClass = a.rate >= 95 ? 'level-优秀' : a.rate >= 90 ? 'level-良好' : 'level-需改进';
-    const pct = Math.max(0, ((a.rate - 60) / 40 * 100)).toFixed(0);
-    const COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
-    const avatarBg = COLORS[idx % COLORS.length];
-    return `
-    <div class="agent-card">
-      <div class="agent-card-header">
-        <div class="agent-avatar" style="background:${avatarBg}">${a.name[1]||a.name[0]}</div>
-        <div class="agent-info">
-          <h3>${a.name}</h3>
-          <p>本期质检 ${a.total} 条 &nbsp;<span class="level-badge ${lvlClass}">${level}</span></p>
-        </div>
-        <div style="margin-left:auto;font-size:24px;font-weight:700;color:${color}">${a.rate}%</div>
-      </div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${bg}"></div></div>
-      <div class="agent-stats">
-        <div class="agent-stat"><div class="agent-stat-val" style="color:var(--pass)">${a.passCnt}</div><div class="agent-stat-label">合格条数</div></div>
-        <div class="agent-stat"><div class="agent-stat-val" style="color:var(--fail)">${a.failCnt}</div><div class="agent-stat-label">不合格条数</div></div>
-        <div class="agent-stat"><div class="agent-stat-val" style="color:${color}">${a.rate >= 90 ? '✅' : '❌'}</div><div class="agent-stat-label">是否达标</div></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // 配额表（改为合格率汇总表）
-  document.getElementById('quotaBody').innerHTML = agents.sort((a,b)=>a.rate-b.rate).map(a => `
-    <tr>
-      <td>${getAgentTag(a.name)}</td>
-      <td><strong style="color:${a.rate>=90?'var(--pass)':'var(--fail)'}">${a.rate}%</strong></td>
-      <td>${a.total}条</td>
-      <td style="color:var(--fail)">${a.failCnt}条</td>
-      <td><span class="level-badge ${a.pass?'level-良好':'level-需改进'}">${a.pass?'合格':'待改进'}</span></td>
-      <td style="font-size:12px;color:var(--text2)">${a.pass?'持续保持':'重点关注，提升服务规范'}</td>
-    </tr>`).join('');
+  renderAgentMatrix();
 }
 
-// ============ 问题分析页 ============
-function initIssuePage() {
-  const issueFreq = ISSUE_FREQ || {};
-  const dimFreq   = DIM_FREQ   || {};
-  const shopQc    = SHOP_QC    || [];
+function renderAgentMatrix() {
+  const agents   = AGENT_QC || [];
+  const allShops = ALL_SHOPS || [];
+  const view     = document.getElementById('aqViewSel')?.value || 'rate';
 
-  // 问题场景排行
-  const sorted = Object.entries(issueFreq).sort((a,b) => b[1]-a[1]);
-  document.getElementById('issueRankList').innerHTML = sorted.map(([name, cnt], i) => `
-    <div class="issue-item">
-      <div class="issue-rank ${i < 3 ? 'top3' : ''}">${i+1}</div>
-      <div class="issue-detail"><h4>${name}</h4><p>出现 ${cnt} 次</p></div>
-      <div class="issue-count">${cnt}<small>次</small></div>
-    </div>`).join('') || '<div class="empty"><p>暂无问题数据</p></div>';
+  // 顶部汇总卡片
+  const COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
+  document.getElementById('agentGrid').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:4px">
+      ${agents.sort((a,b)=>b.rate-a.rate).map((a,i)=>{
+        const color = a.rate>=90?'var(--pass)':a.rate>=80?'var(--warn)':'var(--fail)';
+        return `<div style="background:white;border-radius:10px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid ${a.rate>=90?'#4CAF50':a.rate>=80?'#FF9800':'#F44336'}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${COLORS[i%COLORS.length]};display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700">${a.name[0]}</div>
+            <div style="font-weight:700;font-size:13px">${a.name}</div>
+          </div>
+          <div style="font-size:22px;font-weight:700;color:${color}">${a.rate}%</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.total}条 · 不合格${a.fail}条</div>
+        </div>`;
+      }).join('')}
+    </div>`;
 
-  // 扣分维度雷达图
-  const dimLabels = Object.keys(dimFreq);
-  const dimVals   = Object.values(dimFreq);
-  new Chart(document.getElementById('dimChart'), {
-    type: 'radar',
-    data: {
-      labels: dimLabels,
-      datasets: [{
-        label: '不合格次数',
-        data: dimVals,
-        backgroundColor: 'rgba(218,41,28,0.15)',
-        borderColor: '#DA291C',
-        pointBackgroundColor: '#DA291C',
-        borderWidth: 2,
-      }]
-    },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { r: { beginAtZero: true, grid: { color: '#eee' }, ticks: { font: { size: 10 } } } } }
-  });
+  // 矩阵表头：姓名 | 各店铺 | 总计
+  const thead = document.getElementById('aqHead');
+  thead.innerHTML = `<tr>
+    <th class="name-col">客服</th>
+    ${allShops.map(s=>`<th>${s}</th>`).join('')}
+    <th style="background:#fff8e1;border-left:2px solid var(--gold)">总合格率</th>
+    <th style="background:#fff8e1">总条数</th>
+  </tr>`;
 
-  // 话术库改为：各店铺问题汇总
-  document.getElementById('scriptLibrary').innerHTML = shopQc.filter(s => s.failCnt > 0)
-    .sort((a,b) => a.rate - b.rate).map(s => `
-    <div style="margin-bottom:16px">
-      <h4 style="font-size:13px;font-weight:700;color:${s.rate>=90?'var(--pass)':'var(--fail)'};margin-bottom:8px;display:flex;align-items:center;gap:8px">
-        <span style="width:4px;height:14px;background:${s.rate>=90?'var(--pass)':'var(--fail)'};display:inline-block;border-radius:2px"></span>
-        ${s.shop} &nbsp;<span style="font-weight:400;font-size:12px;color:var(--text2)">合格率 ${s.rate}%（共${s.total}条，不合格${s.failCnt}条）</span>
-      </h4>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${(s.issues||[]).map(i => `
-          <div style="border:1px solid #eee;border-radius:8px;padding:8px 12px;background:#fafafa;min-width:160px">
-            <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:2px">${i.issue}</div>
-            <div style="font-size:11px;color:var(--text2)">出现 ${i.cnt} 次</div>
-          </div>`).join('')}
-      </div>
-    </div>`).join('') || '<div class="empty"><p>暂无店铺问题数据</p></div>';
+  // 矩阵表体
+  const tbody = document.getElementById('aqBody');
+  const rows = agents.sort((a,b)=>b.rate-a.rate).map(a => {
+    const cells = allShops.map(shop => {
+      const sd = a.shops?.[shop];
+      if (!sd) return `<td class="aq-cell-empty">—</td>`;
+      let val, cls;
+      if (view === 'rate') {
+        val = sd.rate + '%';
+        cls = sd.rate>=90?'aq-cell-ok':sd.rate>=80?'aq-cell-warn':'aq-cell-bad';
+      } else if (view === 'count') {
+        val = `${sd.total}条`;
+        cls = sd.fail>0 ? 'aq-cell-warn' : 'aq-cell-ok';
+      } else {
+        val = `${sd.total}条<br><span style="font-size:11px">${sd.rate}%</span>`;
+        cls = sd.rate>=90?'aq-cell-ok':sd.rate>=80?'aq-cell-warn':'aq-cell-bad';
+      }
+      return `<td class="${cls}">${val}</td>`;
+    }).join('');
+
+    const totalColor = a.rate>=90?'var(--pass)':a.rate>=80?'var(--warn)':'var(--fail)';
+    return `<tr>
+      <td class="name-col">
+        ${a.name}
+        <span class="aq-badge ${a.ok?'aq-badge-ok':'aq-badge-bad'}" style="margin-left:4px">${a.ok?'达标':'未达标'}</span>
+      </td>
+      ${cells}
+      <td style="background:#fffde7;border-left:2px solid var(--gold);font-weight:700;color:${totalColor}">${a.rate}%</td>
+      <td style="background:#fffde7;color:var(--text2)">${a.total}</td>
+    </tr>`;
+  }).join('');
+
+  // 合计行：每店铺汇总
+  const shopTotals = allShops.map(shop => {
+    let total=0, pass=0;
+    agents.forEach(a => { const sd=a.shops?.[shop]; if(sd){total+=sd.total;pass+=sd.pass;} });
+    if (!total) return `<td class="aq-cell-empty">—</td>`;
+    const rate = Math.round(pass/total*100);
+    const cls = rate>=90?'aq-cell-ok':rate>=80?'aq-cell-warn':'aq-cell-bad';
+    return `<td class="${cls}">${rate}%<br><span style="font-size:10px;font-weight:400">${total}条</span></td>`;
+  }).join('');
+  const grandTotal = agents.reduce((s,a)=>s+a.total,0);
+  const grandPass  = agents.reduce((s,a)=>s+a.pass,0);
+  const grandRate  = Math.round(grandPass/grandTotal*100);
+
+  tbody.innerHTML = rows + `<tr class="aq-total-row">
+    <td class="name-col">📊 合计</td>
+    ${shopTotals}
+    <td style="background:#fff8e1;border-left:2px solid var(--gold);color:${grandRate>=90?'var(--pass)':'var(--fail)'}">${grandRate}%</td>
+    <td style="background:#fff8e1;color:var(--text2)">${grandTotal}</td>
+  </tr>`;
 }
 
 // ============ Tab切换 ============
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const tabs = ['dashboard','detail','agent','issue','sop','shopflow','scheme','perf'];
+  const tabs = ['dashboard','detail','agent','sop','shopflow','scheme','perf'];
   const idx = tabs.indexOf(tab);
-  document.querySelectorAll('.nav-tab')[idx].classList.add('active');
-  document.getElementById('page-' + tab).classList.add('active');
+  if (idx >= 0) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
+  const page = document.getElementById('page-' + tab);
+  if (page) page.classList.add('active');
   if (tab === 'perf') initPerfPage();
 }
 
