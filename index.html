@@ -2842,13 +2842,14 @@ async function onLoginSuccess(user) {
   _currentUser = user;
 
   // 从 profiles 表读取角色
-  try {
-    const { data } = await _supa.from('profiles').select('role,name').eq('id', user.id).single();
-    _currentRole = (data && data.role) || 'agent';
-    const displayName = (data && data.name) || user.email.split('@')[0];
+  const { data, error } = await _supa.from('profiles').select('role,name').eq('id', user.id).single();
+  if (data && !error) {
+    _currentRole = data.role || 'agent';
+    const displayName = data.name || user.email.split('@')[0];
     renderUserInfo(displayName, _currentRole);
-  } catch(e) {
-    // profiles 表不存在时降级：通过 email 判断
+  } else {
+    // 读取失败时默认 agent
+    console.warn('读取角色失败:', error?.message);
     _currentRole = 'agent';
     renderUserInfo(user.email.split('@')[0], _currentRole);
   }
