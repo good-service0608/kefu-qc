@@ -1130,7 +1130,7 @@ function isBadReview(ev) { return ev && ev.includes('差评'); }
 function isLowScore(s) { return s < 90; }
 
 // ============ 店铺名归一化 ============
-const SHOP_NAME_MAP = {'怡宝':'华润怡宝','麦当劳会员店':'麦当劳官方旗舰店','爱他美AP':'爱他美奶粉海外旗舰店','至熠':'爱他美至熠系列'};
+const SHOP_NAME_MAP = {'怡宝':'华润怡宝','麦当劳':'麦当劳会员店','麦当劳官方旗舰店':'麦当劳会员店','爱他美':'爱他美AP','爱他美奶粉海外旗舰店':'爱他美AP','至熠':'爱他美至熠系列'};
 
 function normalizeShopNames() {
   (QC_SESSIONS||[]).forEach(s => { if (s.shop && SHOP_NAME_MAP[s.shop]) s.shop = SHOP_NAME_MAP[s.shop]; });
@@ -1380,10 +1380,11 @@ function renderAgentMatrix() {
     const failSess = (sessByAgent[a.name]||[]).filter(s=>!s.pass);
 
     const innerRows = failSess.length===0
-      ? `<tr><td colspan="5" style="text-align:center;padding:10px;color:#888">本期无不合格记录 ✅</td></tr>`
+      ? `<tr><td colspan="6" style="text-align:center;padding:10px;color:#888">本期无不合格记录 ✅</td></tr>`
       : failSess.map(s=>`<tr style="border-bottom:1px solid #e8e8e8">
           <td style="padding:8px 14px;font-size:12px">${s.shop||'—'}</td>
           <td style="padding:8px;font-size:12px;white-space:nowrap">${s.date}</td>
+          <td style="padding:8px;font-size:11px;color:var(--text2);word-break:break-all;max-width:130px">${s.id||'—'}</td>
           <td style="padding:8px;font-size:12px">${s.dim&&s.dim!=='nan'?`<span class="tag tag-dim1" style="font-size:11px">${s.dim}</span>`:'—'}</td>
           <td style="padding:8px;font-size:12px;max-width:200px">${s.issue||'—'}</td>
           <td style="padding:8px;font-size:11px;color:#555">${s.scenario||'—'}</td>
@@ -1402,9 +1403,10 @@ function renderAgentMatrix() {
             <thead><tr style="background:#ececec">
               <th style="padding:8px 14px;font-size:12px;font-weight:600;text-align:left">店铺</th>
               <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">日期</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">会话ID</th>
               <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">扣分维度</th>
               <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">问题描述</th>
-              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">改进建议</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">问题场景</th>
             </tr></thead>
             <tbody>${innerRows}</tbody>
           </table>
