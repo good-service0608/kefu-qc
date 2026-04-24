@@ -343,6 +343,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         <label style="font-size:13px;color:var(--text2)">切换店铺：</label>
         <select id="shopflowSelect" onchange="switchShopflow(this.value)" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
           <option value="mcd">🍔 麦当劳官方旗舰店</option>
+          <option value="sfj">🧴 舒肤佳</option>
         </select>
       </div>
     </div>
@@ -472,6 +473,503 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         </div>
       </div>
     </div>
+
+    <!-- 舒肤佳流程 -->
+    <div id="shopflow-sfj" style="display:none">
+
+      <!-- ① 产品品质问题 -->
+      <div class="sop-section">
+        <div class="sop-title">一、产品品质问题处理</div>
+        <div class="highlight-box" style="margin-bottom:14px">
+          <strong>核心处理原则：</strong>以消费者满意度为导向，<strong>10元以内体验金客服可自主决定</strong>；超权限问题通过钉钉群、微信群多系统协同处理。<br>
+          所需凭证（通用）：<strong>面单照片 + 外包装照片 + 商品合照 + 批次号</strong>
+        </div>
+
+        <table class="sop-table">
+          <tr><th width="120">问题场景</th><th width="100">判断条件</th><th>处理流程</th><th width="220">注意事项 / 差异说明</th></tr>
+
+          <!-- 容量不满 -->
+          <tr>
+            <td><strong>容量不满</strong></td>
+            <td>消费者反馈容量不满</td>
+            <td>
+              ① 先解释瓶子设计避免爆瓶原因，提供相关话术和容量测试视频<br>
+              ② 若不认可 → 给予 <strong>5-10元体验金</strong>（根据产品情况和订单金额区分）
+            </td>
+            <td>—</td>
+          </tr>
+
+          <!-- 泵头打不开 -->
+          <tr>
+            <td rowspan="3"><strong>泵头问题</strong></td>
+            <td>泵头打不开</td>
+            <td>
+              ① 指导消费者按正确方式打开泵头（提供照片/视频/文字说明）<br>
+              ② 仍打不开 → 给予 <strong>5元体验金</strong>，可补发泵头<br>
+              ③ 超售后期 → 优先补发泵头；无泵头则补发<strong>全新同香型产品</strong>
+            </td>
+            <td>
+              ⚠️ <strong>与PCC前置SOP差异：</strong><br>
+              PCC SOP：根据库存情况给安慰礼包（石榴沐浴露50g+经典白80g+Olay身体乳90g）<br>
+              <strong>以本PDF流程为准：5元体验金+补泵头</strong>
+            </td>
+          </tr>
+          <tr>
+            <td>泵头溢液</td>
+            <td>
+              ① 解释是运输摇晃导致<br>
+              ② 不接受解释 → 给予 <strong>5元体验金</strong>
+            </td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>泵头损坏</td>
+            <td>
+              ① 售后期内 → 按<strong>破损流程</strong>处理<br>
+              ② 超售后期 → 补泵头；提 400 处理
+            </td>
+            <td>—</td>
+          </tr>
+
+          <!-- 胶带缠绕 -->
+          <tr>
+            <td><strong>胶带缠绕</strong></td>
+            <td>包装胶带缠绕</td>
+            <td>
+              ① 解释是仓库包装加固操作<br>
+              ② 不认可 → 给予 <strong>5元体验金</strong>
+            </td>
+            <td>—</td>
+          </tr>
+
+          <!-- 异味 -->
+          <tr>
+            <td rowspan="2"><strong>异味问题</strong></td>
+            <td>异味（产品变质）</td>
+            <td>
+              ① 售后期内 → 抖店申请<strong>售后换货</strong><br>
+              ② 超售后期 → 解释后补一瓶同味道产品<br>
+              ③ 不接受 → 在400群反馈或升级400处理
+            </td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>味道不喜欢（主观）</td>
+            <td>
+              ① 解释香味因人而异<br>
+              ② 不认可 → 给予最多 <strong>5元体验金</strong>
+            </td>
+            <td>
+              ⚠️ <strong>与PCC前置SOP差异：</strong><br>
+              PCC SOP：主观满意度类→可提供400礼包（45克小样等）<br>
+              <strong>以本PDF为准：≤5元体验金</strong>
+            </td>
+          </tr>
+
+          <!-- 效果不好 -->
+          <tr>
+            <td><strong>效果不好</strong></td>
+            <td>留香/肤感/泡沫不满意</td>
+            <td>
+              ① 使用官方话术解释（留香因人而异、肤质不同等）<br>
+              ② 消费者坚持 → 根据订单金额给予<strong>不超过10元红包</strong>
+            </td>
+            <td>
+              ⚠️ <strong>与PCC前置SOP差异：</strong><br>
+              PCC SOP泡沫类：解释→换货选项；主观感受类→礼包<br>
+              <strong>以本PDF为准：≤10元红包</strong>
+            </td>
+          </tr>
+
+          <!-- 使用过敏 -->
+          <tr>
+            <td rowspan="3"><strong>使用过敏</strong></td>
+            <td>轻微过敏</td>
+            <td>
+              ① 引导消费者拍照留证<br>
+              ② 给予 <strong>10元以内心意红包</strong>
+            </td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>严重过敏（用量未超20%）</td>
+            <td>支持<strong>过敏包退</strong></td>
+            <td>以使用量为判断标准</td>
+          </tr>
+          <tr>
+            <td>严重过敏要求赔偿医药费</td>
+            <td>
+              升级400处理<br>
+              需消费者提供：订单截图 + 产品照片 + 过敏部位照片
+            </td>
+            <td>此类场景必须走品牌班牛升级400</td>
+          </tr>
+
+          <!-- 有异物 -->
+          <tr>
+            <td><strong>有异物</strong></td>
+            <td>发现虫子/毛发等异物</td>
+            <td>
+              ① 先维护品牌形象，做好安抚<br>
+              ② <strong>回收产品换货</strong>，不接受仅退款<br>
+              ③ 寄回地址：<strong>400地址（顺丰或京东到付）</strong><br>
+              ④ 消费者有其他诉求 → 在群里问 CR 或 PMC
+            </td>
+            <td>
+              ⚠️ <strong>与PCC前置SOP差异：</strong><br>
+              PCC SOP：解释异物来源+换货，极端情况特殊升级<br>
+              <strong>以本PDF为准：明确不接受仅退款，必须回收换货</strong>
+            </td>
+          </tr>
+
+          <!-- 0期或过期 -->
+          <tr>
+            <td><strong>0期或过期</strong></td>
+            <td>临期或已过期产品</td>
+            <td>
+              ① 详情页已注明保质期短的情况，以<strong>收到货日期</strong>为准<br>
+              ② 未注明且签收一年多 → 给予 <strong>3-5元体验金</strong>
+            </td>
+            <td>保质期小于1年详情页会注明</td>
+          </tr>
+
+          <!-- 大小/规格不标准 -->
+          <tr>
+            <td><strong>规格尺寸不标准</strong></td>
+            <td>消费者质疑容量/大小</td>
+            <td>用官方话术解释瓶子设计原因（如680g和720g瓶子大小相同）</td>
+            <td>—</td>
+          </tr>
+
+          <!-- 非正品 -->
+          <tr>
+            <td><strong>非正品质疑</strong></td>
+            <td>消费者认为是假货</td>
+            <td>
+              ① 强调是官方授权正品，使用正品解释话术<br>
+              ② 可让消费者拨打 <strong>400验真伪</strong><br>
+              ③ 无法扫码 → 使用扫码官方话术解释
+            </td>
+            <td>—</td>
+          </tr>
+
+          <!-- 功效问题 -->
+          <tr>
+            <td><strong>功效问题</strong></td>
+            <td>贝斯经典系列觉得功效不如以前</td>
+            <td>
+              ① 抛出新卖点引导<br>
+              ② 不认可 → 给予 <strong>2元代金券</strong>
+            </td>
+            <td>仅限贝斯经典系列场景</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ② 少错破问题 -->
+      <div class="sop-section">
+        <div class="sop-title">二、少错破问题处理</div>
+        <div class="highlight-box" style="margin-bottom:14px">
+          <strong>三要素凭证：</strong>快递面单 + 外包装完整照片 + 商品合照（少件再加少件商品照片）<br>
+          <strong>系统协同：</strong>抖店 + 班牛 + 菜鸟 + 钉钉
+        </div>
+
+        <table class="sop-table">
+          <tr><th width="120">问题场景</th><th>处理流程</th><th width="200">注意事项</th></tr>
+
+          <tr>
+            <td><strong>少件</strong></td>
+            <td>
+              ① 要求消费者提供：<strong>快递面单 + 外包装完整照片 + 少件商品照片</strong><br>
+              ② 少件金额 &lt;10元且包装破损 → 优先协商退款；不接受则认责后补发（需索要地址）<br>
+              ③ 折价金额按克数计算<br>
+              ④ 同步<strong>菜鸟追责</strong>：提交菜鸟工单 + 班牛工单跟进
+            </td>
+            <td>菜鸟工单和班牛工单均需提交</td>
+          </tr>
+
+          <tr>
+            <td><strong>错发</strong></td>
+            <td>
+              ① 与消费者确认<strong>快递单号</strong>，要求提供照片核实<br>
+              ② 确实错发 → 提菜鸟处理，让消费者<strong>暂存商品</strong><br>
+              ③ 快递认责后 → 补发或退款
+            </td>
+            <td>—</td>
+          </tr>
+
+          <tr>
+            <td rowspan="3"><strong>破损</strong></td>
+            <td>
+              <strong>外包装破损：</strong><br>
+              客户介意 → 给予 <strong>5元</strong>；凭证后找菜鸟追责
+            </td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>
+              <strong>外好内破（轻微漏液）：</strong><br>
+              ① 优先协商小额<br>
+              ② 按菜鸟规则提交班牛工单
+            </td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>
+              <strong>外破内破（严重漏液）：</strong><br>
+              ① 让消费者<strong>暂存商品</strong><br>
+              ② 联系快递追责，认责成功后补发<br>
+              ③ 漏液严重 → 追整单金额；协商小额 → 追协商金额
+            </td>
+            <td>确认具体破损商品后再追责金额</td>
+          </tr>
+
+          <tr>
+            <td><strong>漏发</strong></td>
+            <td>
+              ① 订单有、发货系统没有 → 直接给客户<strong>补发</strong><br>
+              ② 反馈订单给售后，查看是否为批量问题
+            </td>
+            <td>—</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ③ 售后服务流程 -->
+      <div class="sop-section">
+        <div class="sop-title">三、售后服务流程</div>
+
+        <table class="sop-table">
+          <tr><th width="140">售后场景</th><th>处理方式</th><th width="200">注意事项</th></tr>
+
+          <tr>
+            <td><strong>退货退款<br>（客户主动）</strong></td>
+            <td>
+              售后期内支持<strong>未拆封商品</strong>退货退款<br><br>
+              退款金额计算：<br>
+              • 有赠品时：<strong>实付款 − 赠品金额</strong><br>
+              • 无赠品时：<strong>实付款 ÷ 总毫升数 × 可退回毫升数</strong>
+            </td>
+            <td>拆封商品不支持无理由退货</td>
+          </tr>
+
+          <tr>
+            <td><strong>客户申请全额<br>但寄回少</strong></td>
+            <td>
+              ① 售后拒绝，留言告知可退金额，要求修改退款金额<br>
+              ② 平台已极速退款 → 让客户还款给平台（拒绝退款会影响客户信誉）<br>
+              ③ 按正常售后单处理
+            </td>
+            <td>—</td>
+          </tr>
+
+          <tr>
+            <td><strong>补发</strong></td>
+            <td>
+              ① 客服登记补发表，确保登记正确<br>
+              ② 客户催补发 → 先在<strong>钉钉群</strong>查看是否已补发<br>
+              ③ 已补发 → 查菜鸟单号告知客户<br>
+              ④ 未补发 → 钉钉群催 <strong>263</strong> 优先处理
+            </td>
+            <td>退款由263操作，换货由售后操作</td>
+          </tr>
+
+          <tr>
+            <td><strong>换货</strong></td>
+            <td>只支持<strong>同链接同规格</strong>换货</td>
+            <td>不可跨规格/链接换货</td>
+          </tr>
+
+          <tr>
+            <td><strong>超售后期<br>退款/退货</strong></td>
+            <td>
+              ① 在群里问货主 263 是否支持<br>
+              ② 支持 → 处理；不支持 → 婉拒<br>
+              ③ 涉及运费险报销 → 通过<strong>小额打款或支付宝打款</strong>
+            </td>
+            <td>⚠️ 避免从小额打款/支付宝引导退款，防止羊毛党</td>
+          </tr>
+
+          <tr>
+            <td><strong>售后运费</strong></td>
+            <td>
+              订单一般有运费险；商家原因造成的运费<strong>超出部分全额报销</strong><br>
+              需消费者提供：<strong>运费支付成功凭证</strong><br>
+              通过小额打款或支付宝打款退款<br>
+              • 小额打款：1-3个工作日<br>
+              • 支付宝打款：约7个工作日（需提供真实姓名）
+            </td>
+            <td>消费者催运费可在钉钉表查看打款进度</td>
+          </tr>
+
+          <tr>
+            <td><strong>取消售后</strong></td>
+            <td>
+              • 已发货仅退款 → <strong>无法取消</strong>，建议重拍<br>
+              • 退货退款未寄出 → 可取消<br>
+              • 已寄出 → 联系寄件快递取消，收到包裹后再取消退款
+            </td>
+            <td>—</td>
+          </tr>
+
+          <tr>
+            <td><strong>退款异常</strong></td>
+            <td>
+              • 支付宝打款 → 钉钉群要截图<br>
+              • 抖音钱包打款 → 让客户在抖音钱包查看（未开通则先开通）<br>
+              • 其他原路退款未收到 → 建议联系支付平台
+            </td>
+            <td>—</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ④ 开票问题 -->
+      <div class="sop-section">
+        <div class="sop-title">四、开票问题</div>
+        <table class="sop-table">
+          <tr><th width="140">场景</th><th>处理方式</th><th width="200">注意事项</th></tr>
+          <tr>
+            <td><strong>开普票</strong></td>
+            <td>默认线上开普票，消费者在<strong>订单里申请</strong></td>
+            <td>超30天无法线上开票，发自助开票链接让消费者申请</td>
+          </tr>
+          <tr>
+            <td><strong>开专票</strong></td>
+            <td>
+              消费者需提供：企业号 + 纳税识别号 + 纳税证明截图<br>
+              通过<strong>线下邮件</strong>开票<br>
+              邮件地址：<strong>fapiao.sh@ys-yj.com</strong>
+            </td>
+            <td>专票不可在线上直接开，须线下邮件操作</td>
+          </tr>
+          <tr>
+            <td><strong>开票操作</strong></td>
+            <td>
+              开票后备注订单 → 登记班牛 → 售后开好票后发抖店消息<br>
+              消费者催开票 → 在<strong>钉钉催</strong>
+            </td>
+            <td>修改发票分财务未开和已开两种情况，分别按要求处理；支持订单合并开票但有规则限制</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ⑤ 评价管理 -->
+      <div class="sop-section">
+        <div class="sop-title">五、评价管理</div>
+        <table class="sop-table">
+          <tr><th width="140">场景</th><th>处理方式</th><th width="200">指标要求</th></tr>
+          <tr>
+            <td><strong>好评邀评</strong></td>
+            <td>
+              建议使用官方邀评话术，话术中包含<strong>"评价服务"</strong>关键词
+            </td>
+            <td>满意度 ≤10%；邀评率 ≥60%；评价率 ≥40%</td>
+          </tr>
+          <tr>
+            <td><strong>差评处理</strong></td>
+            <td>
+              ① 只回复<strong>有内容的差评</strong><br>
+              ② 登记到专门差评表格<br>
+              ③ 可给客户打电话或留言，给予 <strong>5-10元挽回</strong><br>
+              ④ 登记支付表格，售后支付
+            </td>
+            <td>差评激励金额 5-10元</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ⑥ 400前置权限场景 -->
+      <div class="sop-section">
+        <div class="sop-title">六、400前置权限场景（品牌授权）</div>
+        <div class="highlight-box" style="margin-bottom:14px">
+          <strong>适用场景：</strong>以下场景超出一线客服权限，需通过<strong>品牌班牛（公用联合账号）</strong>升级400处理。<br>
+          新建工单时需填写：订单号、店铺、品牌名、升级类型（产品质量/健康相关）、消费者诉求、问题描述、问题截图（订单截图+批次号等）
+        </div>
+        <table class="sop-table">
+          <tr><th width="160">场景</th><th>400可处理方案</th></tr>
+          <tr><td>超售后期泵头问题</td><td>可补发泵头或换新</td></tr>
+          <tr><td>质地问题（太稀）</td><td>太稀太稠 → 超售后期可换货</td></tr>
+          <tr><td>颜色异味（超售后期）</td><td>补发同款产品</td></tr>
+          <tr><td>主观不满意</td><td>可提供400礼包（45克小样等）</td></tr>
+          <tr><td>严重过敏要求赔偿</td><td>400外呼跟进，需订单截图+产品照片+过敏部位照片+批次号</td></tr>
+          <tr><td>异物/金属异物</td><td>金属异物直接升级定义处理，要求提供信息与照片</td></tr>
+        </table>
+      </div>
+
+      <!-- ⑦ 系统操作 -->
+      <div class="sop-section">
+        <div class="sop-title">七、系统操作指引</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:8px">
+
+          <div style="border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:10px;font-size:14px">📋 班牛系统</div>
+            <ul style="font-size:12px;color:#444;line-height:2;padding-left:16px">
+              <li>新建工单：选店铺→订单号→问题类型→填写跟进内容→贴补发地址→设置下次跟进时间→任务状态选"待处理"→提交并新增</li>
+              <li>特殊工单（开发票）：下次跟进时间往后挪 2-3个工作日</li>
+              <li>消费者情绪激动 / 要求几小时内答复：次日跟进</li>
+              <li>查工单：输入订单号查询；工单已完成但有问题则新建工单</li>
+              <li>批量建单：导出表格填写后扫入系统</li>
+            </ul>
+          </div>
+
+          <div style="border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:10px;font-size:14px">📦 菜鸟系统</div>
+            <ul style="font-size:12px;color:#444;line-height:2;padding-left:16px">
+              <li>登录：公共账号，在账号表中找舒肤佳相关账号，输入账号名和密码授权登录</li>
+              <li>订单管理：查看发货情况/补发单号，通过下单时间区分原单和补发单</li>
+              <li>找人工（少件/价值问题）：上班时间 9:00-21:00，用运单号与人工客服沟通</li>
+              <li>手动建工单：9点之后手动建；服务咨询选催件/拦截/改地址；投诉理赔选包裹丢失/外包装破损等类型</li>
+              <li>上传凭证：商品货值照片+破损照片+面单照片+外包装照片（可用聊天记录/退款截图代替部分）</li>
+            </ul>
+          </div>
+
+          <div style="border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:10px;font-size:14px">🏷️ 品牌班牛（升级400）</div>
+            <ul style="font-size:12px;color:#444;line-height:2;padding-left:16px">
+              <li>与自己的班牛冲突，用<strong>公用账号联合账号</strong>登录</li>
+              <li>升级类型：产品质量 或 健康相关</li>
+              <li>填写是否需要400外呼跟进</li>
+              <li>补商品时选 PG、仓库，筛选品牌和商品名称，注意库存情况</li>
+              <li>选"提交并竞争"</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 差异汇总 -->
+      <div class="sop-section">
+        <div class="sop-title">⚠️ 附：PDF会议纪要 vs Excel SOP 差异对照</div>
+        <div class="highlight-box" style="background:#fff8e1;border-color:#ffe082;margin-bottom:14px">
+          <strong>原则：</strong>当PDF会议纪要（2026-03-24培训记录）与Excel SOP（PCC PQC前置SOP wave2）流程不一致时，以<strong>PDF会议纪要为准</strong>，差异点如下：
+        </div>
+        <table class="sop-table">
+          <tr><th width="160">问题场景</th><th>PDF会议纪要（以此为准）</th><th>PCC前置SOP（已废弃/升级）</th></tr>
+          <tr>
+            <td>泵头打不开</td>
+            <td>5元体验金 + 补泵头；超售后期补同香型产品</td>
+            <td>根据库存给安慰礼包（石榴沐浴露50g + 经典白80g + Olay身体乳90g）</td>
+          </tr>
+          <tr>
+            <td>主观味道/效果不满意</td>
+            <td>≤5元体验金（味道）；≤10元红包（效果）</td>
+            <td>主观满意度类 → 400礼包（45克小样）</td>
+          </tr>
+          <tr>
+            <td>异物处理</td>
+            <td>明确<strong>不接受仅退款</strong>，必须回收换货；寄回400地址（顺丰/京东到付）</td>
+            <td>解释+换货，极端情况特殊升级（未明确拒绝仅退款）</td>
+          </tr>
+          <tr>
+            <td>效果/泡沫问题</td>
+            <td>官方话术解释 → ≤10元红包</td>
+            <td>泡沫类 → 换货；主观类 → 礼包</td>
+          </tr>
+        </table>
+      </div>
+
+    </div><!-- end shopflow-sfj -->
+
   </div>
 </div>
 
