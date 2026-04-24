@@ -187,6 +187,14 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   /* Empty state */
   .empty { text-align: center; padding: 40px; color: var(--text2); }
   .empty-icon { font-size: 40px; margin-bottom: 8px; }
+
+  /* Focus agent cards */
+  .focus-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+
+  /* Agent matrix expandable */
+  .aq-main-row { cursor: pointer; }
+  .aq-main-row:hover td { background: #f0f0f0 !important; }
+  .aq-detail-row { background: #f9f9f9; }
 </style>
 </head>
 <body>
@@ -230,12 +238,8 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     </div>
   </div>
   <div class="section">
-    <div class="section-header"><div class="section-title">⚠️ 需关注会话（得分低于90分）</div></div>
-    <div id="lowScoreList"></div>
-  </div>
-  <div class="section">
-    <div class="section-header"><div class="section-title">🔴 差评会话（必查）</div></div>
-    <div id="badReviewList"></div>
+    <div class="section-header"><div class="section-title">🔴 重点关注人员（合格率 &lt; 90%）</div></div>
+    <div id="focusAgentCards"></div>
   </div>
 </div>
 
@@ -279,7 +283,6 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             <th style="min-width:130px">会话ID</th>
             <th>客服</th>
             <th>问题场景</th>
-            <th>会话分类</th>
             <th>结果</th>
             <th>扣分维度</th>
             <th style="min-width:200px">问题描述</th>
@@ -317,14 +320,9 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 <!-- 汇总卡片 -->
 <div id="agentGrid"></div>
 
-<!-- 筛选 -->
+<!-- 说明 -->
 <div class="aq-filter-bar" style="margin-top:16px">
-  <select id="aqViewSel" onchange="renderAgentMatrix()">
-    <option value="rate">显示合格率</option>
-    <option value="count">显示质检条数</option>
-    <option value="both">显示条数/合格率</option>
-  </select>
-  <span style="font-size:12px;color:var(--text2)">绿色≥90% 橙色80-89% 红色&lt;80% 灰色无数据</span>
+  <span style="font-size:12px;color:var(--text2)">格子显示：合格条数/总条数 · 绿色≥90% 红色&lt;90% · 点击姓名行展开不合格记录</span>
 </div>
 
 <!-- 每人×每店铺矩阵表 -->
@@ -1131,8 +1129,48 @@ function getAgentTag(name) { return `<span class="agent-tag agent-${name}">${nam
 function isBadReview(ev) { return ev && ev.includes('差评'); }
 function isLowScore(s) { return s < 90; }
 
+// ============ 店铺名归一化 ============
+const SHOP_NAME_MAP = {'怡宝':'华润怡宝','麦当劳会员店':'麦当劳官方旗舰店','爱他美AP':'爱他美奶粉海外旗舰店','至熠':'爱他美至熠系列'};
+
+function normalizeShopNames() {
+  (QC_SESSIONS||[]).forEach(s => { if (s.shop && SHOP_NAME_MAP[s.shop]) s.shop = SHOP_NAME_MAP[s.shop]; });
+  (AGENT_QC||[]).forEach(a => {
+    if (!a.shops) return;
+    Object.entries(SHOP_NAME_MAP).forEach(([from, to]) => {
+      if (!a.shops[from]) return;
+      const src = a.shops[from];
+      if (a.shops[to]) {
+        a.shops[to].total += src.total; a.shops[to].pass += src.pass; a.shops[to].fail += src.fail;
+        a.shops[to].rate = a.shops[to].total ? Math.round(a.shops[to].pass/a.shops[to].total*100) : 0;
+      } else { a.shops[to] = {...src}; }
+      delete a.shops[from];
+    });
+    let t=0,p=0,f=0;
+    Object.values(a.shops).forEach(sd=>{t+=sd.total;p+=sd.pass;f+=sd.fail;});
+    a.total=t; a.pass=p; a.fail=f; a.rate=t?Math.round(p/t*100):0; a.ok=a.rate>=90;
+  });
+  if (typeof ALL_SHOPS !== 'undefined') {
+    const renamed = ALL_SHOPS.map(s=>SHOP_NAME_MAP[s]||s);
+    const seen=new Set(); ALL_SHOPS.length=0;
+    renamed.forEach(s=>{if(!seen.has(s)){seen.add(s);ALL_SHOPS.push(s);}});
+  }
+  (SHOP_QC||[]).forEach(s=>{if(s.shop&&SHOP_NAME_MAP[s.shop])s.shop=SHOP_NAME_MAP[s.shop];});
+  if (typeof SHOP_QC!=='undefined'&&SHOP_QC.length) {
+    const m={};
+    SHOP_QC.forEach(s=>{
+      if(!m[s.shop])m[s.shop]={shop:s.shop,total:0,passCnt:0,failCnt:0,issues:[]};
+      m[s.shop].total+=s.total; m[s.shop].failCnt+=s.failCnt;
+      m[s.shop].passCnt+=(s.passCnt||(s.total-s.failCnt));
+      if(s.issues)m[s.shop].issues=m[s.shop].issues.concat(s.issues);
+    });
+    Object.values(m).forEach(s=>{s.rate=s.total?Math.round(s.passCnt/s.total*100):0;});
+    SHOP_QC.length=0; Object.values(m).forEach(s=>SHOP_QC.push(s));
+  }
+}
+
 // ============ 初始化 ============
 window.onload = function() {
+  normalizeShopNames();
   QC_CONFIG.lastUpdated && (document.getElementById('lastUpdateTime').textContent = QC_CONFIG.lastUpdated);
 
   // ── 用新版合格率数据 ──
@@ -1155,35 +1193,8 @@ window.onload = function() {
     <div class="stat-card"><div class="stat-label">质检客服数</div><div class="stat-value">${agentCnt}</div><div class="stat-sub">${(AGENT_QC||[]).map(a=>a.name).join('、')}</div></div>
   `;
 
-  // 不合格明细列表
-  const badSessions = QC_SESSIONS || [];
-  document.getElementById('lowScoreList').innerHTML = badSessions.length ? `
-    <div class="table-wrap"><table>
-      <thead><tr><th>日期</th><th>店铺</th><th>客服</th><th>会话分类</th><th>问题场景</th><th>扣分维度</th><th>问题描述</th><th>责任方</th></tr></thead>
-      <tbody>${badSessions.map(s => `<tr class="low-score">
-        <td>${s.date}</td>
-        <td><span style="font-size:12px;background:#f0f0f0;padding:2px 6px;border-radius:4px">${s.shop}</span></td>
-        <td>${getAgentTag(s.agent)}</td>
-        <td><span class="tag tag-bad">${s.evaluation}</span></td>
-        <td>${s.scenario}</td>
-        <td><span class="tag tag-dim1">${s.dim}</span></td>
-        <td style="font-size:12px;color:#555;max-width:200px">${s.issue}</td>
-        <td style="font-size:12px;color:var(--text2)">${s.responsible}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>` : '<div class="empty"><div class="empty-icon">✅</div><p>本期无不合格会话</p></div>';
-
-  // 差评列表（复用为：各店铺合格率概览）
-  document.getElementById('badReviewList').innerHTML = `
-    <div class="table-wrap"><table>
-      <thead><tr><th>店铺</th><th>质检条数</th><th>不合格</th><th>合格率</th><th>TOP问题</th></tr></thead>
-      <tbody>${(SHOP_QC||[]).sort((a,b)=>a.rate-b.rate).map(s => `<tr class="${s.rate<90?'bad-review':''}">
-        <td><strong>${s.shop}</strong></td>
-        <td>${s.total}</td>
-        <td style="color:${s.failCnt>0?'var(--fail)':'var(--pass)'}">${s.failCnt}</td>
-        <td><strong style="color:${s.rate>=90?'var(--pass)':'var(--fail)'}">${s.rate}%</strong></td>
-        <td style="font-size:12px;color:var(--text2)">${(s.issues||[]).map(i=>`${i.issue}(${i.cnt}次)`).join(' · ') || '—'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>`;
+  // 重点关注人员
+  renderFocusAgents();
 
   // 图表 - 客服合格率
   const agentNames = (AGENT_QC||[]).map(a => a.name);
@@ -1274,7 +1285,7 @@ function renderDetailTable(sessions) {
   document.getElementById('filterCount').textContent = `显示 ${sessions.length} / ${(QC_SESSIONS||[]).length} 条`;
   const tbody = document.getElementById('detailBody');
   if (!sessions.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = sessions.map((s, i) => {
@@ -1292,7 +1303,6 @@ function renderDetailTable(sessions) {
       <td style="font-size:10px;color:var(--text2);max-width:120px;word-break:break-all">${s.id}</td>
       <td>${getAgentTag(s.agent)}</td>
       <td style="font-size:12px">${s.scenario||'—'}</td>
-      <td><span class="tag ${s.type?.includes('差')?'tag-bad':'tag-normal'}" style="font-size:11px">${s.type||'—'}</span></td>
       <td>${passTag}</td>
       <td>${dimTag}</td>
       <td style="font-size:12px;color:#555;max-width:220px">${issue}</td>
@@ -1308,85 +1318,194 @@ function initAgentPage() {
 function renderAgentMatrix() {
   const agents   = AGENT_QC || [];
   const allShops = ALL_SHOPS || [];
-  const view     = document.getElementById('aqViewSel')?.value || 'rate';
+  const COLORS   = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
 
-  // 顶部汇总卡片
-  const COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
-  document.getElementById('agentGrid').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:4px">
-      ${agents.sort((a,b)=>b.rate-a.rate).map((a,i)=>{
-        const color = a.rate>=90?'var(--pass)':a.rate>=80?'var(--warn)':'var(--fail)';
-        return `<div style="background:white;border-radius:10px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid ${a.rate>=90?'#4CAF50':a.rate>=80?'#FF9800':'#F44336'}">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <div style="width:28px;height:28px;border-radius:50%;background:${COLORS[i%COLORS.length]};display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700">${a.name[0]}</div>
-            <div style="font-weight:700;font-size:13px">${a.name}</div>
-          </div>
-          <div style="font-size:22px;font-weight:700;color:${color}">${a.rate}%</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.total}条 · 不合格${a.fail}条</div>
-        </div>`;
-      }).join('')}
-    </div>`;
+  // 计算每人店铺达标率，用于排序
+  const rows = agents.map((a, origIdx) => {
+    const served = Object.keys(a.shops||{}).filter(sh=>(a.shops[sh]?.total||0)>0);
+    const qual   = served.filter(sh=>(a.shops[sh]?.rate||0)>=90);
+    const pct    = served.length ? Math.round(qual.length/served.length*100) : null;
+    const str    = served.length ? qual.length+'/'+served.length : '—';
+    return {...a, _served:served, _qual:qual, _pct:pct, _str:str};
+  });
 
-  // 矩阵表头：姓名 | 各店铺 | 总计
-  const thead = document.getElementById('aqHead');
-  thead.innerHTML = `<tr>
-    <th class="name-col">客服</th>
-    ${allShops.map(s=>`<th>${s}</th>`).join('')}
-    <th style="background:#fff8e1;border-left:2px solid var(--gold)">总合格率</th>
-    <th style="background:#fff8e1">总条数</th>
+  // 按店铺达标率升序（无数据放最后）
+  rows.sort((a,b)=>{
+    if (a._pct===null&&b._pct===null) return 0;
+    if (a._pct===null) return 1; if (b._pct===null) return -1;
+    return a._pct - b._pct;
+  });
+
+  // QC_SESSIONS 按人索引（用于展开详情）
+  const sessByAgent = {};
+  (QC_SESSIONS||[]).forEach(s=>{ if(!sessByAgent[s.agent])sessByAgent[s.agent]=[]; sessByAgent[s.agent].push(s); });
+
+  const colCount = allShops.length + 2;
+
+  // 顶部卡片（按达标率升序排列）
+  document.getElementById('agentGrid').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:4px">
+    ${rows.map((a,i)=>{
+      const color=a.rate>=90?'var(--pass)':a.rate>=80?'var(--warn)':'var(--fail)';
+      return `<div style="background:white;border-radius:10px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid ${a.rate>=90?'#4CAF50':a.rate>=80?'#FF9800':'#F44336'}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="width:28px;height:28px;border-radius:50%;background:${COLORS[i%COLORS.length]};display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700">${a.name[0]}</div>
+          <div style="font-weight:700;font-size:13px">${a.name}</div>
+        </div>
+        <div style="font-size:22px;font-weight:700;color:${color}">${a.rate}%</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.total}条 · 不合格${a.fail}条</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  // 矩阵表头
+  document.getElementById('aqHead').innerHTML = `<tr>
+    <th class="name-col">客服 <span style="font-size:10px;font-weight:400;color:#aaa">（点击展开不合格记录）</span></th>
+    ${allShops.map(s=>`<th style="text-align:center;min-width:100px">${s}</th>`).join('')}
+    <th style="text-align:center;background:#fff8e1;border-left:2px solid var(--gold);white-space:nowrap">店铺达标率</th>
   </tr>`;
 
   // 矩阵表体
-  const tbody = document.getElementById('aqBody');
-  const rows = agents.sort((a,b)=>b.rate-a.rate).map(a => {
+  const bodyRows = rows.map((a, idx) => {
     const cells = allShops.map(shop => {
       const sd = a.shops?.[shop];
-      if (!sd) return `<td class="aq-cell-empty">—</td>`;
-      let val, cls;
-      if (view === 'rate') {
-        val = sd.rate + '%';
-        cls = sd.rate>=90?'aq-cell-ok':sd.rate>=80?'aq-cell-warn':'aq-cell-bad';
-      } else if (view === 'count') {
-        val = `${sd.total}条`;
-        cls = sd.fail>0 ? 'aq-cell-warn' : 'aq-cell-ok';
-      } else {
-        val = `${sd.total}条<br><span style="font-size:11px">${sd.rate}%</span>`;
-        cls = sd.rate>=90?'aq-cell-ok':sd.rate>=80?'aq-cell-warn':'aq-cell-bad';
-      }
-      return `<td class="${cls}">${val}</td>`;
+      if (!sd||!sd.total) return `<td class="aq-cell-empty" style="text-align:center">—</td>`;
+      const ok = sd.rate>=90;
+      return `<td style="text-align:center;background:${ok?'rgba(76,175,80,0.09)':'rgba(244,67,54,0.09)'}">
+        <div style="font-weight:700;color:${ok?'#4CAF50':'#F44336'}">${sd.pass}/${sd.total}</div>
+        <div style="font-size:11px;color:${ok?'#4CAF50':'#F44336'}">${sd.rate}%</div>
+      </td>`;
     }).join('');
 
-    const totalColor = a.rate>=90?'var(--pass)':a.rate>=80?'var(--warn)':'var(--fail)';
-    return `<tr>
-      <td class="name-col">
-        ${a.name}
-        <span class="aq-badge ${a.ok?'aq-badge-ok':'aq-badge-bad'}" style="margin-left:4px">${a.ok?'达标':'未达标'}</span>
-      </td>
-      ${cells}
-      <td style="background:#fffde7;border-left:2px solid var(--gold);font-weight:700;color:${totalColor}">${a.rate}%</td>
-      <td style="background:#fffde7;color:var(--text2)">${a.total}</td>
-    </tr>`;
+    const rColor = a._pct===null?'#ccc':a._pct>=85?'#4CAF50':a._pct>=50?'#FF9800':'#F44336';
+    const failSess = (sessByAgent[a.name]||[]).filter(s=>!s.pass);
+
+    const innerRows = failSess.length===0
+      ? `<tr><td colspan="5" style="text-align:center;padding:10px;color:#888">本期无不合格记录 ✅</td></tr>`
+      : failSess.map(s=>`<tr style="border-bottom:1px solid #e8e8e8">
+          <td style="padding:8px 14px;font-size:12px">${s.shop||'—'}</td>
+          <td style="padding:8px;font-size:12px;white-space:nowrap">${s.date}</td>
+          <td style="padding:8px;font-size:12px">${s.dim&&s.dim!=='nan'?`<span class="tag tag-dim1" style="font-size:11px">${s.dim}</span>`:'—'}</td>
+          <td style="padding:8px;font-size:12px;max-width:200px">${s.issue||'—'}</td>
+          <td style="padding:8px;font-size:11px;color:#555">${s.scenario||'—'}</td>
+        </tr>`).join('');
+
+    return `<tr class="aq-main-row" onclick="toggleAqDetail(${idx})">
+        <td class="name-col">${a.name} <span class="aq-badge ${a.ok?'aq-badge-ok':'aq-badge-bad'}" style="margin-left:4px">${a.ok?'达标':'未达标'}</span> <span style="font-size:10px;color:#ccc">▶</span></td>
+        ${cells}
+        <td style="text-align:center;background:#fffde7;border-left:2px solid var(--gold)">
+          ${a._pct!==null?`<div style="font-weight:700;color:${rColor}">${a._str}</div><div style="font-size:11px;color:#888">${a._pct}%</div>`:'<span style="color:#ccc">—</span>'}
+        </td>
+      </tr>
+      <tr id="aqDetail_${idx}" style="display:none" class="aq-detail-row">
+        <td colspan="${colCount}" style="padding:0">
+          <table style="width:100%;border-collapse:collapse;background:#f9f9f9">
+            <thead><tr style="background:#ececec">
+              <th style="padding:8px 14px;font-size:12px;font-weight:600;text-align:left">店铺</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">日期</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">扣分维度</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">问题描述</th>
+              <th style="padding:8px;font-size:12px;font-weight:600;text-align:left">改进建议</th>
+            </tr></thead>
+            <tbody>${innerRows}</tbody>
+          </table>
+        </td>
+      </tr>`;
   }).join('');
 
-  // 合计行：每店铺汇总
-  const shopTotals = allShops.map(shop => {
-    let total=0, pass=0;
-    agents.forEach(a => { const sd=a.shops?.[shop]; if(sd){total+=sd.total;pass+=sd.pass;} });
-    if (!total) return `<td class="aq-cell-empty">—</td>`;
-    const rate = Math.round(pass/total*100);
-    const cls = rate>=90?'aq-cell-ok':rate>=80?'aq-cell-warn':'aq-cell-bad';
-    return `<td class="${cls}">${rate}%<br><span style="font-size:10px;font-weight:400">${total}条</span></td>`;
+  // 合计行
+  const shopTotals = allShops.map(shop=>{
+    let t=0,p=0;
+    agents.forEach(a=>{const sd=a.shops?.[shop];if(sd){t+=sd.total;p+=sd.pass;}});
+    if(!t) return `<td class="aq-cell-empty" style="text-align:center">—</td>`;
+    const rate=Math.round(p/t*100);
+    const ok=rate>=90;
+    return `<td style="text-align:center;background:${ok?'rgba(76,175,80,0.09)':'rgba(244,67,54,0.09)'}">
+      <div style="font-weight:700;color:${ok?'#4CAF50':'#F44336'}">${p}/${t}</div>
+      <div style="font-size:11px;color:${ok?'#4CAF50':'#F44336'}">${rate}%</div>
+    </td>`;
   }).join('');
-  const grandTotal = agents.reduce((s,a)=>s+a.total,0);
-  const grandPass  = agents.reduce((s,a)=>s+a.pass,0);
-  const grandRate  = Math.round(grandPass/grandTotal*100);
+  const gTotal=agents.reduce((s,a)=>s+a.total,0);
+  const gPass =agents.reduce((s,a)=>s+a.pass,0);
+  const gRate =gTotal?Math.round(gPass/gTotal*100):0;
 
-  tbody.innerHTML = rows + `<tr class="aq-total-row">
+  document.getElementById('aqBody').innerHTML = bodyRows + `<tr class="aq-total-row">
     <td class="name-col">📊 合计</td>
     ${shopTotals}
-    <td style="background:#fff8e1;border-left:2px solid var(--gold);color:${grandRate>=90?'var(--pass)':'var(--fail)'}">${grandRate}%</td>
-    <td style="background:#fff8e1;color:var(--text2)">${grandTotal}</td>
+    <td style="text-align:center;background:#fff8e1;border-left:2px solid var(--gold)">
+      <div style="font-weight:700;color:${gRate>=90?'var(--pass)':'var(--fail)'}">${gRate}%</div>
+      <div style="font-size:11px;color:#888">${gTotal}条</div>
+    </td>
   </tr>`;
+}
+
+function toggleAqDetail(idx) {
+  const row = document.getElementById('aqDetail_'+idx);
+  if (row) row.style.display = row.style.display==='none' ? 'table-row' : 'none';
+}
+
+// ============ 重点关注人员卡片 ============
+function renderFocusAgents() {
+  const COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
+  const dimSuggest = {
+    '维度1':'加强沟通规范：背诵标准开结束语，使用规范书面用语，避免口语化表达',
+    '维度2':'强化业务知识：确保信息完整准确，主动告知时效/条件/限制等关键要素',
+    '维度3':'提升沟通能力：先安抚情绪再解决，复述确认后再回答，提供多个方案',
+    '维度4':'熟悉操作流程：按标准步骤执行，确保流程完整不遗漏关键步骤',
+    '维度5':'严守红线：杜绝争吵、私自承诺无法兑现的赔偿等严重错误行为',
+  };
+
+  const allAgents = AGENT_QC || [];
+  const focus = allAgents.filter(a => a.rate < 90);
+
+  if (!focus.length) {
+    document.getElementById('focusAgentCards').innerHTML = '<div class="empty"><div class="empty-icon">✅</div><p>本期所有人员合格率均≥90%，表现优秀！</p></div>';
+    return;
+  }
+
+  const sessByAgent = {};
+  (QC_SESSIONS||[]).forEach(s=>{ if(!sessByAgent[s.agent])sessByAgent[s.agent]=[]; sessByAgent[s.agent].push(s); });
+
+  document.getElementById('focusAgentCards').innerHTML = '<div class="focus-cards-grid">' +
+    focus.map((a, i) => {
+      const color = COLORS[allAgents.indexOf(a) % COLORS.length] || '#999';
+      const rateColor = a.rate < 70 ? '#F44336' : '#FF9800';
+
+      // 按店铺问题汇总
+      const shopRows = Object.entries(a.shops||{})
+        .filter(([,sd])=>sd.fail>0)
+        .sort((x,y)=>y[1].fail-x[1].fail)
+        .map(([shop, sd]) => {
+          const failSess = (sessByAgent[a.name]||[]).filter(s=>s.shop===shop&&!s.pass);
+          const dimCnts = {};
+          failSess.forEach(s=>{ if(s.dim&&s.dim!=='nan'&&s.dim!=='无扣分') dimCnts[s.dim]=(dimCnts[s.dim]||0)+1; });
+          const items = Object.entries(dimCnts).sort((a,b)=>b[1]-a[1])
+            .map(([d,c])=>`<div style="font-size:11px;color:#555;padding-left:8px">• ${d}（${c}次）</div>`).join('');
+          return `<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:600;color:#333">🏪 ${shop} · 不合格${sd.fail}/${sd.total}条</div>${items||'<div style="font-size:11px;color:#999;padding-left:8px">无详细维度数据</div>'}</div>`;
+        }).join('');
+
+      // 高频扣分维度 → 改进建议
+      const allFail = (sessByAgent[a.name]||[]).filter(s=>!s.pass);
+      const dimCnts = {};
+      allFail.forEach(s=>{ if(s.dim&&s.dim!=='nan'&&s.dim!=='无扣分') dimCnts[s.dim]=(dimCnts[s.dim]||0)+1; });
+      const topDims = Object.entries(dimCnts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]);
+      const suggests = topDims.map((d,i)=>`<div style="font-size:12px;color:#444;margin-bottom:3px">${i+1}. ${dimSuggest[d]||'参照质检SOP进行改进'}</div>`).join('');
+
+      return `<div style="border:1px solid #ffcdd2;border-radius:10px;padding:16px;background:#fff">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:40px;height:40px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px">${a.name[0]}</div>
+          <div><div style="font-size:15px;font-weight:700">${a.name}</div><div style="font-size:12px;color:#888">不合格 ${a.fail} 条</div></div>
+          <div style="margin-left:auto;font-size:24px;font-weight:700;color:${rateColor}">${a.rate}%</div>
+        </div>
+        <div style="background:#f8f8f8;border-radius:6px;padding:10px;margin-bottom:10px">
+          <div style="font-size:12px;font-weight:600;color:#333;margin-bottom:6px">📋 按店铺问题汇总：</div>
+          ${shopRows||'<div style="font-size:12px;color:#999">无店铺级详情</div>'}
+        </div>
+        <div style="background:#fff8e1;border-radius:6px;padding:10px;border-left:3px solid #FFC72C">
+          <div style="font-size:12px;font-weight:600;color:#E65100;margin-bottom:6px">💡 改进建议：</div>
+          ${suggests||'<div style="font-size:12px;color:#999">请参照质检SOP进行改进</div>'}
+        </div>
+      </div>`;
+    }).join('') + '</div>';
 }
 
 // ============ Tab切换 ============
