@@ -329,6 +329,43 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   .btn-confirm-add:disabled { opacity: 0.55; cursor: not-allowed; }
   .btn-cancel-add { background: #f0f0f0; color: var(--text2); border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
   .add-user-error { background: #FFEBEE; color: var(--fail); padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-top: 10px; display: none; }
+
+  /* ===== 客服名册页 ===== */
+  .roster-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .roster-search { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; min-width: 180px; }
+  .roster-search:focus { border-color: var(--primary); }
+  .shop-filter-tabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+  .shop-filter-tab { padding: 5px 12px; border: 1px solid var(--border); border-radius: 20px; font-size: 12px; cursor: pointer; background: white; color: var(--text2); transition: all 0.2s; white-space: nowrap; }
+  .shop-filter-tab:hover { border-color: var(--primary); color: var(--primary); }
+  .shop-filter-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+  .btn-add-roster { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .btn-add-roster:hover { background: var(--primary-dark); }
+  .roster-shop-group { margin-bottom: 24px; }
+  .roster-shop-title { font-size: 14px; font-weight: 700; color: var(--primary); padding: 8px 0 8px 0; border-bottom: 2px solid var(--primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .roster-count { font-size: 12px; color: var(--text2); font-weight: 400; }
+  .roster-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .roster-table th { background: #f8f8f8; padding: 10px 14px; text-align: left; font-weight: 600; color: var(--text2); font-size: 12px; border-bottom: 1px solid var(--border); }
+  .roster-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .roster-table tr:last-child td { border-bottom: none; }
+  .roster-table tr:hover td { background: #fafafa; }
+  .roster-nickname { background: #FFF3E0; color: #E65100; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .btn-edit-roster { background: #E3F2FD; color: #1565C0; border: none; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; margin-right: 4px; }
+  .btn-del-roster { background: #fff0f0; color: var(--fail); border: 1px solid #ffcdd2; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .roster-empty { text-align: center; padding: 40px; color: var(--text2); }
+
+  /* 名册编辑弹窗 */
+  #rosterModal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 900; display: none; align-items: center; justify-content: center; }
+  #rosterModal.open { display: flex; }
+  .roster-modal-box { background: white; border-radius: 14px; padding: 28px; width: 100%; max-width: 440px; }
+  .roster-modal-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; }
+  .roster-field { margin-bottom: 14px; }
+  .roster-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 5px; }
+  .roster-field input, .roster-field select { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; outline: none; }
+  .roster-field input:focus, .roster-field select:focus { border-color: var(--primary); }
+  .roster-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+  .btn-save-roster { background: var(--primary); color: white; border: none; padding: 9px 22px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-save-roster:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-cancel-roster { background: #f0f0f0; color: var(--text2); border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -400,6 +437,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="nav-tab" data-tab="shopflow" onclick="switchTab('shopflow')">🏪 店铺流程</div>
   <div class="nav-tab" data-tab="scheme" onclick="switchTab('scheme')">📐 绩效方案</div>
   <div class="nav-tab" data-tab="perf" onclick="switchTab('perf')">📊 绩效结果</div>
+  <div class="nav-tab" data-tab="roster" onclick="switchTab('roster')">📋 客服名册</div>
   <div class="nav-tab" data-tab="users" onclick="switchTab('users')">👥 用户管理</div>
 </div>
 
@@ -1151,6 +1189,50 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     </div><!-- end shopflow-sfj -->
 
+  </div>
+</div>
+
+<!-- 客服名册页 -->
+<div class="page" id="page-roster">
+  <div class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="section-title">📋 客服名册</div>
+      <button class="btn-add-roster" id="btnAddRoster" onclick="openRosterModal(null)" style="display:none">＋ 添加记录</button>
+    </div>
+    <div class="roster-toolbar">
+      <input class="roster-search" id="rosterSearch" placeholder="搜索真实姓名 / 昵称..." oninput="renderRoster()">
+      <div class="shop-filter-tabs" id="shopFilterTabs"></div>
+    </div>
+    <div id="rosterContent"><div class="roster-empty">加载中...</div></div>
+  </div>
+</div>
+
+<!-- 名册编辑弹窗 -->
+<div id="rosterModal">
+  <div class="roster-modal-box">
+    <div class="roster-modal-title" id="rosterModalTitle">添加客服记录</div>
+    <input type="hidden" id="rosterEditId">
+    <div class="roster-field">
+      <label>真实姓名</label>
+      <input type="text" id="rosterRealName" placeholder="例如：张小燕">
+    </div>
+    <div class="roster-field">
+      <label>客服昵称（系统中显示的名称）</label>
+      <input type="text" id="rosterNickname" placeholder="例如：客服-麦小妖">
+    </div>
+    <div class="roster-field">
+      <label>所属店铺</label>
+      <input type="text" id="rosterShopName" list="shopNameList" placeholder="例如：舒肤佳官方旗舰店">
+      <datalist id="shopNameList"></datalist>
+    </div>
+    <div class="roster-field">
+      <label>备注（选填）</label>
+      <input type="text" id="rosterNote" placeholder="例如：售后专员">
+    </div>
+    <div class="roster-modal-actions">
+      <button class="btn-cancel-roster" onclick="closeRosterModal()">取消</button>
+      <button class="btn-save-roster" id="btnSaveRoster" onclick="saveRosterItem()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -2261,6 +2343,7 @@ function switchTab(tab) {
   if (page) page.classList.add('active');
   if (tab === 'perf') initPerfPage();
   if (tab === 'users') loadUsersPage();
+  if (tab === 'roster') loadRosterPage();
 }
 
 function switchShopflow(val) {
@@ -2886,9 +2969,9 @@ function pfExportCSV() {
 
 // 角色对应可见 tab
 const ROLE_TABS = {
-  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf','users'],
-  supervisor: ['dashboard','detail','agent','sop','shopflow','scheme'],
-  agent:      ['dashboard','detail','agent','sop','shopflow']
+  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf','roster','users'],
+  supervisor: ['dashboard','detail','agent','sop','shopflow','scheme','roster'],
+  agent:      ['dashboard','detail','agent','sop','shopflow','roster']
 };
 
 // 角色中文名
@@ -3000,6 +3083,10 @@ function applyPermissions(role) {
       }
     }
   });
+
+  // 名册添加按钮 admin/supervisor 可见
+  const addRosterBtn = document.getElementById('btnAddRoster');
+  if (addRosterBtn) addRosterBtn.style.display = (role==='admin'||role==='supervisor') ? 'block' : 'none';
 
   // 编辑按钮仅 admin 可见
   const editBtn = document.getElementById('flowEditBtn');
@@ -3275,6 +3362,141 @@ function showAddUserError(msg) {
   el.style.display = 'block';
   document.getElementById('btnConfirmAdd').disabled = false;
   document.getElementById('btnConfirmAdd').textContent = '创建用户';
+}
+
+// ============================================================
+// ★★★  客服名册  ★★★
+// ============================================================
+
+let _rosterData = [];
+let _rosterShopFilter = '全部';
+const SHOP_ICONS = {
+  '舒肤佳官方旗舰店':'🧴','吉列维纳斯个护用品旗舰店':'💜','吉列个护用品旗舰店':'🪒',
+  '沙宣官方旗舰店':'💇','a2紫曜海外旗舰店':'🍼','STOKKE官方旗舰店':'🌿',
+  '爱他美奶粉海外旗舰店':'🐄','爱他美至熠海外旗舰店':'⭐','麦当劳官方旗舰店':'🍔','怡宝官方旗舰店':'💧'
+};
+
+async function loadRosterPage() {
+  const { data, error } = await _supa.from('agent_roster').select('*').order('shop_name').order('real_name');
+  if (error) { document.getElementById('rosterContent').innerHTML = '<div class="roster-empty">加载失败：'+error.message+'</div>'; return; }
+  _rosterData = data || [];
+  buildShopFilterTabs();
+  buildShopDatalist();
+  renderRoster();
+}
+
+function buildShopFilterTabs() {
+  const shops = ['全部', ...new Set(_rosterData.map(r => r.shop_name))];
+  const container = document.getElementById('shopFilterTabs');
+  container.innerHTML = shops.map(s =>
+    `<button class="shop-filter-tab${s===_rosterShopFilter?' active':''}" onclick="setShopFilter('${s}')">${(SHOP_ICONS[s]||'🏪')+' '+s}</button>`
+  ).join('');
+}
+
+function buildShopDatalist() {
+  const shops = [...new Set(_rosterData.map(r => r.shop_name))];
+  const dl = document.getElementById('shopNameList');
+  if (dl) dl.innerHTML = shops.map(s => `<option value="${s}">`).join('');
+}
+
+function setShopFilter(shop) {
+  _rosterShopFilter = shop;
+  document.querySelectorAll('.shop-filter-tab').forEach(b => b.classList.toggle('active', b.textContent.includes(shop)));
+  renderRoster();
+}
+
+function renderRoster() {
+  const keyword = (document.getElementById('rosterSearch')?.value || '').toLowerCase();
+  const canEdit = (_currentRole === 'admin' || _currentRole === 'supervisor');
+
+  let filtered = _rosterData.filter(r => {
+    const shopOk = _rosterShopFilter === '全部' || r.shop_name === _rosterShopFilter;
+    const kwOk = !keyword || r.real_name.toLowerCase().includes(keyword) || r.nickname.toLowerCase().includes(keyword);
+    return shopOk && kwOk;
+  });
+
+  if (!filtered.length) {
+    document.getElementById('rosterContent').innerHTML = '<div class="roster-empty">😶 没有找到匹配的记录</div>';
+    return;
+  }
+
+  // 按店铺分组
+  const groups = {};
+  filtered.forEach(r => { (groups[r.shop_name] = groups[r.shop_name]||[]).push(r); });
+
+  document.getElementById('rosterContent').innerHTML = Object.entries(groups).map(([shop, items]) => `
+    <div class="roster-shop-group">
+      <div class="roster-shop-title">
+        ${SHOP_ICONS[shop]||'🏪'} ${shop}
+        <span class="roster-count">共 ${items.length} 名</span>
+      </div>
+      <div class="table-wrap">
+        <table class="roster-table">
+          <thead><tr><th width="130">真实姓名</th><th>客服昵称</th><th>备注</th>${canEdit?'<th width="120">操作</th>':''}</tr></thead>
+          <tbody>
+            ${items.map(r => `<tr>
+              <td><strong>${r.real_name}</strong></td>
+              <td><span class="roster-nickname">${r.nickname}</span></td>
+              <td style="color:var(--text2);font-size:12px">${r.note||'—'}</td>
+              ${canEdit?`<td>
+                <button class="btn-edit-roster" onclick="openRosterModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">编辑</button>
+                ${_currentRole==='admin'?`<button class="btn-del-roster" onclick="deleteRosterItem('${r.id}','${r.real_name}')">删除</button>`:''}
+              </td>`:''}
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── 弹窗 ──
+function openRosterModal(item) {
+  document.getElementById('rosterModalTitle').textContent = item ? '编辑客服记录' : '添加客服记录';
+  document.getElementById('rosterEditId').value = item?.id || '';
+  document.getElementById('rosterRealName').value = item?.real_name || '';
+  document.getElementById('rosterNickname').value = item?.nickname || '';
+  document.getElementById('rosterShopName').value = item?.shop_name || '';
+  document.getElementById('rosterNote').value = item?.note || '';
+  document.getElementById('btnSaveRoster').disabled = false;
+  document.getElementById('btnSaveRoster').textContent = '保存';
+  document.getElementById('rosterModal').classList.add('open');
+}
+
+function closeRosterModal() {
+  document.getElementById('rosterModal').classList.remove('open');
+}
+
+async function saveRosterItem() {
+  const id       = document.getElementById('rosterEditId').value;
+  const realName = document.getElementById('rosterRealName').value.trim();
+  const nickname = document.getElementById('rosterNickname').value.trim();
+  const shopName = document.getElementById('rosterShopName').value.trim();
+  const note     = document.getElementById('rosterNote').value.trim();
+  const btn      = document.getElementById('btnSaveRoster');
+
+  if (!realName || !nickname || !shopName) { alert('请填写真实姓名、客服昵称和所属店铺'); return; }
+
+  btn.disabled = true; btn.textContent = '保存中...';
+
+  let error;
+  if (id) {
+    ({ error } = await _supa.from('agent_roster').update({ real_name:realName, nickname, shop_name:shopName, note }).eq('id', id));
+  } else {
+    ({ error } = await _supa.from('agent_roster').insert({ real_name:realName, nickname, shop_name:shopName, note }));
+  }
+
+  if (error) { alert('保存失败：' + error.message); btn.disabled=false; btn.textContent='保存'; return; }
+
+  btn.textContent = '✅ 已保存';
+  setTimeout(() => { closeRosterModal(); loadRosterPage(); }, 600);
+}
+
+async function deleteRosterItem(id, name) {
+  if (!confirm(`确认删除「${name}」的这条记录？`)) return;
+  const { error } = await _supa.from('agent_roster').delete().eq('id', id);
+  if (error) { alert('删除失败：' + error.message); return; }
+  loadRosterPage();
 }
 
 // ──── 页面加载入口 ────
