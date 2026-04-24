@@ -1179,7 +1179,7 @@ window.onload = function() {
   const failCnt  = QC_SUMMARY?.failCnt  || 0;
   const passRate = QC_SUMMARY?.passRate || 0;
   const agentCnt = AGENT_QC?.length || AGENT_SUMMARY?.length || 0;
-  const unpassAgents = (AGENT_QC||[]).filter(a => !a.pass).length;
+  const unpassAgents = (AGENT_QC||[]).filter(a => !a.ok).length;
 
   document.getElementById('passRateBadge').textContent = `合格率 ${passRate}%`;
 
