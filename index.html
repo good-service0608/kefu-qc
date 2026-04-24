@@ -296,6 +296,39 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   /* 隐藏无权限菜单 */
   .nav-tab.tab-hidden { display: none !important; }
+
+  /* ===== 用户管理页 ===== */
+  .user-mgmt-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .btn-add-user { background: var(--primary); color: white; border: none; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn-add-user:hover { background: var(--primary-dark); }
+  .user-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .user-table th { background: #f8f8f8; padding: 11px 14px; text-align: left; font-weight: 600; color: var(--text2); font-size: 12px; border-bottom: 1px solid var(--border); }
+  .user-table td { padding: 13px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .user-table tr:last-child td { border-bottom: none; }
+  .user-table tr:hover td { background: #fafafa; }
+  .role-select { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; cursor: pointer; background: white; }
+  .role-select:focus { border-color: var(--primary); }
+  .role-badge-admin { background: #FCE4EC; color: #C2185B; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+  .role-badge-supervisor { background: #E3F2FD; color: #1565C0; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+  .role-badge-agent { background: #E8F5E9; color: #2E7D32; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+  .btn-del-user { background: #fff0f0; color: var(--fail); border: 1px solid #ffcdd2; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .btn-del-user:hover { background: #FFEBEE; }
+  .user-saving { font-size: 12px; color: var(--pass); margin-left: 8px; }
+
+  /* 添加用户弹窗 */
+  #addUserModal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 900; display: none; align-items: center; justify-content: center; }
+  #addUserModal.open { display: flex; }
+  .add-user-box { background: white; border-radius: 14px; padding: 28px; width: 100%; max-width: 420px; }
+  .add-user-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; }
+  .add-user-field { margin-bottom: 14px; }
+  .add-user-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 5px; }
+  .add-user-field input, .add-user-field select { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; outline: none; }
+  .add-user-field input:focus, .add-user-field select:focus { border-color: var(--primary); }
+  .add-user-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+  .btn-confirm-add { background: var(--primary); color: white; border: none; padding: 9px 22px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-confirm-add:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-cancel-add { background: #f0f0f0; color: var(--text2); border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .add-user-error { background: #FFEBEE; color: var(--fail); padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-top: 10px; display: none; }
 </style>
 </head>
 <body>
@@ -367,6 +400,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="nav-tab" data-tab="shopflow" onclick="switchTab('shopflow')">🏪 店铺流程</div>
   <div class="nav-tab" data-tab="scheme" onclick="switchTab('scheme')">📐 绩效方案</div>
   <div class="nav-tab" data-tab="perf" onclick="switchTab('perf')">📊 绩效结果</div>
+  <div class="nav-tab" data-tab="users" onclick="switchTab('users')">👥 用户管理</div>
 </div>
 
 <!-- 概览页 -->
@@ -1117,6 +1151,65 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     </div><!-- end shopflow-sfj -->
 
+  </div>
+</div>
+
+<!-- 用户管理页 -->
+<div class="page" id="page-users">
+  <div class="section">
+    <div class="user-mgmt-header">
+      <div class="section-title">👥 用户权限管理</div>
+      <button class="btn-add-user" onclick="openAddUserModal()">＋ 添加新用户</button>
+    </div>
+    <div class="table-wrap">
+      <table class="user-table">
+        <thead>
+          <tr>
+            <th>姓名</th>
+            <th>邮箱账号</th>
+            <th>当前角色</th>
+            <th>修改角色</th>
+            <th>注册时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody">
+          <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 添加用户弹窗 -->
+<div id="addUserModal">
+  <div class="add-user-box">
+    <div class="add-user-title">➕ 添加新用户</div>
+    <div class="add-user-field">
+      <label>姓名 / 昵称</label>
+      <input type="text" id="newUserName" placeholder="例如：张小燕">
+    </div>
+    <div class="add-user-field">
+      <label>邮箱账号</label>
+      <input type="email" id="newUserEmail" placeholder="例如：user@company.com">
+    </div>
+    <div class="add-user-field">
+      <label>登录密码</label>
+      <input type="password" id="newUserPwd" placeholder="至少6位">
+    </div>
+    <div class="add-user-field">
+      <label>权限角色</label>
+      <select id="newUserRole">
+        <option value="agent">客服（质检+店铺流程）</option>
+        <option value="supervisor">主管（质检+绩效方案）</option>
+        <option value="admin">管理员（全部权限）</option>
+      </select>
+    </div>
+    <div class="add-user-error" id="addUserError"></div>
+    <div class="add-user-actions">
+      <button class="btn-cancel-add" onclick="closeAddUserModal()">取消</button>
+      <button class="btn-confirm-add" id="btnConfirmAdd" onclick="confirmAddUser()">创建用户</button>
+    </div>
   </div>
 </div>
 
@@ -2791,7 +2884,7 @@ function pfExportCSV() {
 
 // 角色对应可见 tab
 const ROLE_TABS = {
-  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf'],
+  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf','users'],
   supervisor: ['dashboard','detail','agent','sop','shopflow','scheme'],
   agent:      ['dashboard','detail','agent','sop','shopflow']
 };
@@ -3065,6 +3158,141 @@ async function loadShopFlowsFromDB() {
   } catch(e) {
     // 表未创建时静默忽略
   }
+}
+
+// ============================================================
+// ★★★  用户管理  ★★★
+// ============================================================
+
+const ROLE_LABEL_MAP = { admin:'管理员', supervisor:'主管', agent:'客服' };
+
+// 切换到用户管理 tab 时加载数据
+const _origSwitchTab = switchTab;
+function switchTab(tabName) {
+  _origSwitchTab(tabName);
+  if (tabName === 'users') loadUsersPage();
+}
+
+async function loadUsersPage() {
+  const tbody = document.getElementById('userTableBody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr>';
+
+  const { data, error } = await _supa.from('profiles').select('id, name, role, created_at');
+  if (error || !data) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--fail)">加载失败：' + (error?.message || '未知错误') + '</td></tr>';
+    return;
+  }
+
+  // 获取邮箱（从 auth.users 通过视图）
+  const emailMap = {};
+  try {
+    // 尝试通过 user_emails 视图（需 Supabase 开启）
+    const { data: eu } = await _supa.rpc('get_user_emails');
+    if (eu) eu.forEach(r => { emailMap[r.id] = r.email; });
+  } catch(_) {}
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text2)">暂无用户</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(u => {
+    const email = emailMap[u.id] || '—';
+    const created = u.created_at ? u.created_at.slice(0,10) : '—';
+    const isSelf = u.id === _currentUser?.id;
+    return `<tr>
+      <td><strong>${u.name || '未设置'}</strong></td>
+      <td style="color:var(--text2)">${email}</td>
+      <td><span class="role-badge-${u.role}">${ROLE_LABEL_MAP[u.role] || u.role}</span></td>
+      <td>
+        <select class="role-select" onchange="changeUserRole('${u.id}', this.value, this)" ${isSelf ? 'disabled title="不能修改自己的角色"' : ''}>
+          <option value="agent" ${u.role==='agent'?'selected':''}>客服</option>
+          <option value="supervisor" ${u.role==='supervisor'?'selected':''}>主管</option>
+          <option value="admin" ${u.role==='admin'?'selected':''}>管理员</option>
+        </select>
+        <span class="user-saving" id="saving-${u.id}" style="display:none">✅ 已保存</span>
+      </td>
+      <td style="color:var(--text2)">${created}</td>
+      <td>${isSelf ? '<span style="font-size:12px;color:var(--text2)">当前账号</span>' :
+        `<button class="btn-del-user" onclick="deleteUser('${u.id}','${u.name||u.id}')">删除</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function changeUserRole(userId, newRole, selectEl) {
+  const { error } = await _supa.from('profiles').update({ role: newRole }).eq('id', userId);
+  if (error) { alert('修改失败：' + error.message); selectEl.value = selectEl.dataset.prev || 'agent'; return; }
+  selectEl.dataset.prev = newRole;
+  // 刷新徽标
+  const row = selectEl.closest('tr');
+  row.querySelector('td:nth-child(3)').innerHTML = `<span class="role-badge-${newRole}">${ROLE_LABEL_MAP[newRole]}</span>`;
+  const savingEl = document.getElementById('saving-' + userId);
+  if (savingEl) { savingEl.style.display = 'inline'; setTimeout(() => { savingEl.style.display = 'none'; }, 2000); }
+}
+
+async function deleteUser(userId, name) {
+  if (!confirm(`确认删除用户「${name}」？\n\n该用户将无法登录，此操作不可撤销。`)) return;
+  const { error } = await _supa.from('profiles').delete().eq('id', userId);
+  if (error) { alert('删除失败：' + error.message); return; }
+  loadUsersPage();
+}
+
+// ── 添加用户弹窗 ──
+function openAddUserModal() {
+  document.getElementById('newUserName').value = '';
+  document.getElementById('newUserEmail').value = '';
+  document.getElementById('newUserPwd').value = '';
+  document.getElementById('newUserRole').value = 'agent';
+  document.getElementById('addUserError').style.display = 'none';
+  document.getElementById('btnConfirmAdd').disabled = false;
+  document.getElementById('btnConfirmAdd').textContent = '创建用户';
+  document.getElementById('addUserModal').classList.add('open');
+}
+
+function closeAddUserModal() {
+  document.getElementById('addUserModal').classList.remove('open');
+}
+
+async function confirmAddUser() {
+  const name  = document.getElementById('newUserName').value.trim();
+  const email = document.getElementById('newUserEmail').value.trim();
+  const pwd   = document.getElementById('newUserPwd').value;
+  const role  = document.getElementById('newUserRole').value;
+  const errEl = document.getElementById('addUserError');
+  const btn   = document.getElementById('btnConfirmAdd');
+
+  if (!name || !email || !pwd) { showAddUserError('请填写所有字段'); return; }
+  if (pwd.length < 6) { showAddUserError('密码至少需要6位'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '创建中...';
+  errEl.style.display = 'none';
+
+  // 创建 Auth 账号
+  const { data: signUpData, error: signUpErr } = await _supa.auth.signUp({ email, password: pwd });
+  if (signUpErr) { showAddUserError('创建失败：' + signUpErr.message); btn.disabled=false; btn.textContent='创建用户'; return; }
+
+  const newUid = signUpData?.user?.id;
+  if (!newUid) { showAddUserError('创建账号失败，请重试'); btn.disabled=false; btn.textContent='创建用户'; return; }
+
+  // 写入 profiles（用管理员权限 upsert）
+  const { error: profErr } = await _supa.from('profiles').upsert({ id: newUid, name, role }, { onConflict: 'id' });
+  if (profErr) { showAddUserError('账号已创建但设置角色失败：' + profErr.message); }
+
+  btn.textContent = '✅ 已创建';
+  setTimeout(() => {
+    closeAddUserModal();
+    loadUsersPage();
+  }, 800);
+}
+
+function showAddUserError(msg) {
+  const el = document.getElementById('addUserError');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('btnConfirmAdd').disabled = false;
+  document.getElementById('btnConfirmAdd').textContent = '创建用户';
 }
 
 // ──── 页面加载入口 ────
