@@ -195,9 +195,147 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   .aq-main-row { cursor: pointer; }
   .aq-main-row:hover td { background: #f0f0f0 !important; }
   .aq-detail-row { background: #f9f9f9; }
+
+  /* ===== 登录弹窗 ===== */
+  #loginOverlay {
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, #DA291C 0%, #7a0f07 100%);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+  }
+  .login-box {
+    background: white; border-radius: 20px; padding: 44px 40px;
+    width: 100%; max-width: 400px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+    animation: loginIn 0.35s ease;
+  }
+  @keyframes loginIn { from { transform: scale(0.92); opacity:0; } to { transform: scale(1); opacity:1; } }
+  .login-logo { text-align: center; margin-bottom: 28px; }
+  .login-logo .icon { font-size: 52px; }
+  .login-logo h2 { font-size: 20px; font-weight: 700; color: var(--text); margin-top: 10px; }
+  .login-logo p { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  .login-field { margin-bottom: 14px; }
+  .login-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; letter-spacing: 0.5px; }
+  .login-field input {
+    width: 100%; padding: 11px 14px; border: 1.5px solid var(--border);
+    border-radius: 8px; font-size: 14px; outline: none; transition: border 0.2s;
+  }
+  .login-field input:focus { border-color: var(--primary); }
+  .login-btn {
+    width: 100%; padding: 13px; background: var(--primary); color: white;
+    border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: background 0.2s; margin-top: 6px;
+  }
+  .login-btn:hover { background: var(--primary-dark); }
+  .login-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .login-error {
+    background: #FFEBEE; color: var(--fail); padding: 9px 12px;
+    border-radius: 7px; font-size: 12px; margin-top: 12px; display: none; text-align: center;
+  }
+
+  /* ===== 顶栏用户信息 ===== */
+  .user-info { display: flex; align-items: center; gap: 10px; }
+  .user-avatar { width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+  .user-name { font-size: 13px; font-weight: 600; }
+  .user-role-badge { background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .logout-btn { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 5px 12px; border-radius: 7px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+  .logout-btn:hover { background: rgba(255,255,255,0.22); }
+
+  /* ===== 店铺流程编辑模式 ===== */
+  .flow-edit-btn {
+    background: var(--gold); color: #333; padding: 6px 16px;
+    border-radius: 8px; border: none; font-size: 13px; font-weight: 700;
+    cursor: pointer; display: none; gap: 4px; align-items: center;
+    transition: all 0.2s;
+  }
+  .flow-edit-btn.visible { display: inline-flex; }
+  .flow-edit-btn.saving { background: var(--pass); color: white; }
+
+  /* 编辑模式整体区域高亮 */
+  .shopflow-editing [id^="shopflow-"] > .sop-section {
+    position: relative; border: 1.5px dashed #e0e0e0; border-radius: 8px;
+    padding: 14px; margin-bottom: 20px; transition: border 0.2s;
+  }
+  .shopflow-editing [id^="shopflow-"] > .sop-section:hover { border-color: var(--gold); }
+
+  /* 单节点编辑按钮 */
+  .sec-edit-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: var(--primary); color: white; border: none;
+    padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
+    opacity: 0; transition: opacity 0.15s; z-index: 10;
+  }
+  .shopflow-editing [id^="shopflow-"] > .sop-section:hover .sec-edit-btn { opacity: 1; }
+
+  /* 编辑模态框 */
+  #editModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 800; display: none; align-items: center; justify-content: center;
+  }
+  #editModal.open { display: flex; }
+  .edit-modal-box {
+    background: white; border-radius: 14px; padding: 24px;
+    width: 92%; max-width: 860px; display: flex; flex-direction: column; gap: 14px;
+    max-height: 88vh;
+  }
+  .edit-modal-header { display: flex; align-items: center; justify-content: space-between; }
+  .edit-modal-title { font-size: 15px; font-weight: 700; }
+  .edit-modal-hint { font-size: 12px; color: var(--text2); }
+  #editTextarea {
+    flex: 1; min-height: 380px; font-family: 'Menlo', 'Consolas', monospace;
+    font-size: 12px; line-height: 1.6; padding: 14px;
+    border: 1px solid var(--border); border-radius: 8px; resize: vertical; outline: none;
+    overflow-y: auto;
+  }
+  #editTextarea:focus { border-color: var(--primary); }
+  .edit-modal-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+  .btn-save-flow { background: var(--pass); color: white; border: none; padding: 9px 24px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-save-flow:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-cancel-edit { background: #f0f0f0; color: var(--text2); border: none; padding: 9px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .edit-save-status { font-size: 12px; color: var(--pass); display: none; }
+
+  /* 隐藏无权限菜单 */
+  .nav-tab.tab-hidden { display: none !important; }
 </style>
 </head>
 <body>
+
+<!-- ===== 登录弹窗 ===== -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon">🎯</div>
+      <h2>客服质检绩效系统</h2>
+      <p>请登录以继续使用</p>
+    </div>
+    <div class="login-field">
+      <label>邮箱账号</label>
+      <input type="email" id="loginEmail" placeholder="请输入邮箱" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>密码</label>
+      <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+    </div>
+    <button class="login-btn" id="loginBtn" onclick="doLogin()">登 录</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== 店铺流程编辑弹窗 ===== -->
+<div id="editModal">
+  <div class="edit-modal-box">
+    <div class="edit-modal-header">
+      <div class="edit-modal-title">✏️ 编辑店铺流程节点</div>
+      <div class="edit-modal-hint">编辑HTML内容 · 修改后点击保存</div>
+    </div>
+    <textarea id="editTextarea" spellcheck="false"></textarea>
+    <div class="edit-modal-actions">
+      <span class="edit-save-status" id="editSaveStatus">✅ 已保存</span>
+      <button class="btn-cancel-edit" onclick="closeEditModal()">取消</button>
+      <button class="btn-save-flow" id="btnSaveFlow" onclick="saveFlowSection()">💾 保存</button>
+    </div>
+  </div>
+</div>
 
 <div class="header">
   <div class="header-left">
@@ -210,17 +348,25 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="header-right">
     <div class="last-update">最后更新：<span id="lastUpdateTime">--</span></div>
     <div class="pass-badge" id="passRateBadge">合格率：--</div>
+    <div class="user-info" id="userInfoBar" style="display:none">
+      <div class="user-avatar" id="userAvatar">?</div>
+      <div>
+        <div class="user-name" id="userNameDisplay">--</div>
+        <div class="user-role-badge" id="userRoleDisplay">--</div>
+      </div>
+      <button class="logout-btn" onclick="doLogout()">退出</button>
+    </div>
   </div>
 </div>
 
 <div class="nav">
-  <div class="nav-tab active" onclick="switchTab('dashboard')">📊 质检概览</div>
-  <div class="nav-tab" onclick="switchTab('detail')">📋 质检明细</div>
-  <div class="nav-tab" onclick="switchTab('agent')">👤 客服质检汇总</div>
-  <div class="nav-tab" onclick="switchTab('sop')">📄 质检SOP</div>
-  <div class="nav-tab" onclick="switchTab('shopflow')">🏪 店铺流程</div>
-  <div class="nav-tab" onclick="switchTab('scheme')">📐 绩效方案</div>
-  <div class="nav-tab" onclick="switchTab('perf')">📊 绩效结果</div>
+  <div class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 质检概览</div>
+  <div class="nav-tab" data-tab="detail" onclick="switchTab('detail')">📋 质检明细</div>
+  <div class="nav-tab" data-tab="agent" onclick="switchTab('agent')">👤 客服质检汇总</div>
+  <div class="nav-tab" data-tab="sop" onclick="switchTab('sop')">📄 质检SOP</div>
+  <div class="nav-tab" data-tab="shopflow" onclick="switchTab('shopflow')">🏪 店铺流程</div>
+  <div class="nav-tab" data-tab="scheme" onclick="switchTab('scheme')">📐 绩效方案</div>
+  <div class="nav-tab" data-tab="perf" onclick="switchTab('perf')">📊 绩效结果</div>
 </div>
 
 <!-- 概览页 -->
@@ -339,12 +485,13 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <div class="section">
     <div class="section-header">
       <div class="section-title">店铺流程管理</div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:10px;align-items:center">
         <label style="font-size:13px;color:var(--text2)">切换店铺：</label>
         <select id="shopflowSelect" onchange="switchShopflow(this.value)" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
           <option value="mcd">🍔 麦当劳官方旗舰店</option>
           <option value="sfj">🧴 舒肤佳</option>
         </select>
+        <button class="flow-edit-btn" id="flowEditBtn" onclick="toggleEditMode()">✏️ 编辑模式</button>
       </div>
     </div>
 
@@ -2637,6 +2784,292 @@ function pfExportCSV() {
   a.download = `绩效留档_${document.getElementById('pfMonthSel')?.value||'全部'}.csv`;
   a.click();
 }
+
+// ============================================================
+// ★★★  权限 & 登录系统  ★★★
+// ============================================================
+
+// 角色对应可见 tab
+const ROLE_TABS = {
+  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf'],
+  supervisor: ['dashboard','detail','agent','sop','shopflow','scheme'],
+  agent:      ['dashboard','detail','agent','sop','shopflow']
+};
+
+// 角色中文名
+const ROLE_NAMES = { admin:'管理员', supervisor:'主管', agent:'客服' };
+
+// 当前登录用户信息（内存缓存）
+let _currentUser = null;
+let _currentRole = null;
+
+// ──── 登录 ────
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  const btn   = document.getElementById('loginBtn');
+  const errEl = document.getElementById('loginError');
+
+  if (!email || !pass) { showLoginError('请填写邮箱和密码'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+  errEl.style.display = 'none';
+
+  try {
+    const { data, error } = await _supa.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    await onLoginSuccess(data.user);
+  } catch(e) {
+    const msg = e.message || '登录失败';
+    showLoginError(
+      msg.includes('Invalid login') ? '邮箱或密码错误，请重试' :
+      msg.includes('Email not confirmed') ? '邮箱尚未验证，请检查邮件' : msg
+    );
+    btn.disabled = false;
+    btn.textContent = '登 录';
+  }
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// 登录成功后初始化
+async function onLoginSuccess(user) {
+  _currentUser = user;
+
+  // 从 profiles 表读取角色
+  try {
+    const { data } = await _supa.from('profiles').select('role,name').eq('id', user.id).single();
+    _currentRole = (data && data.role) || 'agent';
+    const displayName = (data && data.name) || user.email.split('@')[0];
+    renderUserInfo(displayName, _currentRole);
+  } catch(e) {
+    // profiles 表不存在时降级：通过 email 判断
+    _currentRole = 'agent';
+    renderUserInfo(user.email.split('@')[0], _currentRole);
+  }
+
+  // 加载店铺流程内容（如 Supabase 有数据则覆盖）
+  await loadShopFlowsFromDB();
+
+  // 应用权限
+  applyPermissions(_currentRole);
+
+  // 隐藏登录弹窗
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('userInfoBar').style.display = 'flex';
+}
+
+// ──── 登出 ────
+async function doLogout() {
+  await _supa.auth.signOut();
+  _currentUser = null;
+  _currentRole = null;
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginBtn').disabled = false;
+  document.getElementById('loginBtn').textContent = '登 录';
+  document.getElementById('userInfoBar').style.display = 'none';
+  // 退出编辑模式
+  if (_editMode) toggleEditMode();
+}
+
+// ──── 渲染顶栏用户信息 ────
+function renderUserInfo(name, role) {
+  document.getElementById('userAvatar').textContent = name.charAt(0).toUpperCase();
+  document.getElementById('userNameDisplay').textContent = name;
+  document.getElementById('userRoleDisplay').textContent = ROLE_NAMES[role] || role;
+}
+
+// ──── 权限应用 ────
+function applyPermissions(role) {
+  const allowed = ROLE_TABS[role] || ROLE_TABS.agent;
+
+  // 控制导航 tab 显示
+  document.querySelectorAll('.nav-tab[data-tab]').forEach(el => {
+    const tab = el.getAttribute('data-tab');
+    if (allowed.includes(tab)) {
+      el.classList.remove('tab-hidden');
+    } else {
+      el.classList.add('tab-hidden');
+      // 如果当前激活的是无权限 tab，跳到第一个允许的 tab
+      if (el.classList.contains('active')) {
+        switchTab(allowed[0]);
+      }
+    }
+  });
+
+  // 编辑按钮仅 admin 可见
+  const editBtn = document.getElementById('flowEditBtn');
+  if (role === 'admin') {
+    editBtn.classList.add('visible');
+  } else {
+    editBtn.classList.remove('visible');
+    if (_editMode) toggleEditMode(); // 强制退出编辑模式
+  }
+}
+
+// ──── 检测已有 session（刷新页面不用重新登录）────
+async function checkExistingSession() {
+  const { data: { session } } = await _supa.auth.getSession();
+  if (session && session.user) {
+    await onLoginSuccess(session.user);
+  }
+  // 若无 session，loginOverlay 保持显示
+}
+
+// 监听 Enter 键登录
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('loginEmail').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+});
+
+// ============================================================
+// ★★★  店铺流程 编辑模式  ★★★
+// ============================================================
+let _editMode = false;
+let _editTarget = null; // 当前正在编辑的 sop-section 元素
+
+function toggleEditMode() {
+  _editMode = !_editMode;
+  const btn = document.getElementById('flowEditBtn');
+  const shopflowSection = document.querySelector('.page#page-shopflow .section');
+
+  if (_editMode) {
+    btn.textContent = '✅ 退出编辑';
+    btn.classList.add('saving');
+    shopflowSection.classList.add('shopflow-editing');
+    // 为每个 sop-section 注入编辑按钮
+    injectSectionEditBtns();
+  } else {
+    btn.textContent = '✏️ 编辑模式';
+    btn.classList.remove('saving');
+    shopflowSection.classList.remove('shopflow-editing');
+    removeSectionEditBtns();
+  }
+}
+
+function injectSectionEditBtns() {
+  const activeShop = document.getElementById('shopflowSelect').value;
+  const container = document.getElementById('shopflow-' + activeShop);
+  if (!container) return;
+  container.querySelectorAll('.sop-section').forEach((sec, idx) => {
+    if (sec.querySelector('.sec-edit-btn')) return; // 已注入
+    const btn = document.createElement('button');
+    btn.className = 'sec-edit-btn';
+    btn.textContent = '编辑此节';
+    btn.dataset.idx = idx;
+    btn.onclick = (e) => { e.stopPropagation(); openEditModal(sec); };
+    sec.style.position = 'relative';
+    sec.appendChild(btn);
+  });
+}
+
+function removeSectionEditBtns() {
+  document.querySelectorAll('.sec-edit-btn').forEach(b => b.remove());
+}
+
+// 切换店铺时重新注入编辑按钮
+const _origSwitchShopflow = switchShopflow;
+// Override switchShopflow to re-inject buttons after switch
+function switchShopflow(val) {
+  document.querySelectorAll('[id^="shopflow-"]').forEach(el => el.style.display = 'none');
+  const target = document.getElementById('shopflow-' + val);
+  if (target) target.style.display = 'block';
+  if (_editMode) {
+    removeSectionEditBtns();
+    injectSectionEditBtns();
+  }
+}
+
+// ──── 打开编辑弹窗 ────
+function openEditModal(sectionEl) {
+  _editTarget = sectionEl;
+  // 把编辑按钮本身的 HTML 去掉，只放正文 innerHTML
+  const clone = sectionEl.cloneNode(true);
+  clone.querySelectorAll('.sec-edit-btn').forEach(b => b.remove());
+  document.getElementById('editTextarea').value = clone.innerHTML.trim();
+  document.getElementById('editSaveStatus').style.display = 'none';
+  document.getElementById('btnSaveFlow').disabled = false;
+  document.getElementById('editModal').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('open');
+  _editTarget = null;
+}
+
+// ──── 保存单节内容 ────
+async function saveFlowSection() {
+  if (!_editTarget) return;
+  const html = document.getElementById('editTextarea').value;
+  const btn = document.getElementById('btnSaveFlow');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  // 更新 DOM（保留编辑按钮）
+  const editBtn = _editTarget.querySelector('.sec-edit-btn');
+  _editTarget.innerHTML = html;
+  _editTarget.style.position = 'relative';
+  if (editBtn) _editTarget.appendChild(editBtn);
+
+  // 保存整个当前店铺 HTML 到 Supabase
+  const shopId = document.getElementById('shopflowSelect').value;
+  await saveShopFlowToDB(shopId);
+
+  document.getElementById('editSaveStatus').style.display = 'inline';
+  btn.disabled = false;
+  btn.textContent = '💾 保存';
+  setTimeout(() => closeEditModal(), 800);
+}
+
+// ──── Supabase 读写 ────
+async function saveShopFlowToDB(shopId) {
+  const container = document.getElementById('shopflow-' + shopId);
+  if (!container) return;
+  // 去掉编辑按钮后保存
+  const clone = container.cloneNode(true);
+  clone.querySelectorAll('.sec-edit-btn').forEach(b => b.remove());
+  const content = clone.innerHTML;
+  try {
+    await _supa.from('shop_flows').upsert({
+      shop_id: shopId,
+      content: content,
+      updated_by: _currentUser?.id,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'shop_id' });
+  } catch(e) {
+    console.warn('保存到数据库失败（可能表未创建）:', e.message);
+  }
+}
+
+async function loadShopFlowsFromDB() {
+  try {
+    const { data, error } = await _supa.from('shop_flows').select('shop_id, content');
+    if (error || !data) return;
+    data.forEach(row => {
+      const el = document.getElementById('shopflow-' + row.shop_id);
+      if (el && row.content) {
+        el.innerHTML = row.content;
+      }
+    });
+  } catch(e) {
+    // 表未创建时静默忽略
+  }
+}
+
+// ──── 页面加载入口 ────
+window.addEventListener('DOMContentLoaded', () => {
+  checkExistingSession();
+});
 
 </script>
 </body>
