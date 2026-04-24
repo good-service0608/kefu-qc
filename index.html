@@ -1159,8 +1159,10 @@ function normalizeShopNames() {
     const m={};
     SHOP_QC.forEach(s=>{
       if(!m[s.shop])m[s.shop]={shop:s.shop,total:0,passCnt:0,failCnt:0,issues:[]};
-      m[s.shop].total+=s.total; m[s.shop].failCnt+=s.failCnt;
-      m[s.shop].passCnt+=(s.passCnt||(s.total-s.failCnt));
+      const fc = s.fail!==undefined ? s.fail : (s.failCnt||0);
+      const pc = s.pass!==undefined ? s.pass : (s.passCnt||(s.total-fc));
+      m[s.shop].total+=s.total; m[s.shop].failCnt+=fc;
+      m[s.shop].passCnt+=pc;
       if(s.issues)m[s.shop].issues=m[s.shop].issues.concat(s.issues);
     });
     Object.values(m).forEach(s=>{s.rate=s.total?Math.round(s.passCnt/s.total*100):0;});
