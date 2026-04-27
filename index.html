@@ -598,18 +598,25 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     <div class="qc-upload-bar">
       <div class="qc-upload-icon">📂</div>
       <div class="qc-upload-info">
-        <div class="qc-upload-info-title">上传质检数据（CSV）</div>
-        <div class="qc-upload-info-sub" id="qcCurrentInfo">
-          当前：<span id="qcInfoMonth">2026年4月</span> · <span id="qcInfoTotal">--</span>条 · 最后更新 <span id="qcInfoDate">--</span>
+        <div class="qc-upload-info-title">质检数据管理</div>
+        <div class="qc-upload-info-sub">
+          当前：<span id="qcInfoMonth">—</span> · <span id="qcInfoTotal">—</span>条 · 最后更新 <span id="qcInfoDate">—</span>
+          <span id="qcDataSource" style="margin-left:8px;font-size:11px;color:var(--text2)"></span>
         </div>
       </div>
       <div class="qc-upload-actions">
-        <label class="qc-file-label" for="qcFileInput">
-          📄 选择文件（可多选）
+        <!-- 飞书同步 -->
+        <button class="qc-upload-btn" id="feishuSyncBtn" onclick="syncFeishu()"
+          style="background:#366EF4;display:flex;align-items:center;gap:6px">
+          🔄 同步飞书数据
+        </button>
+        <!-- CSV 上传 -->
+        <label class="qc-file-label" for="qcFileInput" style="margin-left:6px">
+          📄 上传 CSV
           <input type="file" id="qcFileInput" style="display:none" accept=".csv" multiple onchange="onQcFileSelected(this)">
         </label>
         <div class="qc-selected-files" id="qcSelectedFiles"></div>
-        <button class="qc-upload-btn" id="qcUploadBtn" onclick="startQcParse()" disabled>上传并解析</button>
+        <button class="qc-upload-btn" id="qcUploadBtn" onclick="startQcParse()" disabled>解析</button>
       </div>
       <div class="qc-upload-status" id="qcUploadStatus"></div>
     </div>
@@ -3295,6 +3302,9 @@ async function onLoginSuccess(user) {
   // 隐藏登录弹窗
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('userInfoBar').style.display = 'flex';
+
+  // 优先从 qc_records 加载质检数据（后台静默执行，不阻塞登录流程）
+  loadFromQcRecords().catch(e => console.warn('qc_records 加载失败:', e.message));
 }
 
 // ──── 登出 ────
@@ -3975,6 +3985,135 @@ function setQcStatus(type, msg) {
   const el = document.getElementById('qcUploadStatus');
   el.className = 'qc-upload-status' + (type ? ' ' + type : '');
   el.textContent = msg;
+}
+
+// ============================================================
+// ★★★  飞书同步 & qc_records 加载  ★★★
+// ============================================================
+
+// Edge Function URL（从 SUPABASE_URL 派生）
+function getEdgeFuncUrl(name) {
+  return SUPABASE_URL.replace('.supabase.co', '.supabase.co') + '/functions/v1/' + name;
+}
+
+// ──── 手动触发飞书同步 ────
+async function syncFeishu() {
+  const btn = document.getElementById('feishuSyncBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 同步中...';
+  setQcStatus('', '正在从飞书拉取数据，请稍候（约 10-30 秒）...');
+
+  try {
+    const res = await fetch(getEdgeFuncUrl('feishu-sync'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    const result = await res.json();
+
+    if (!result.ok) throw new Error(result.error || '同步失败');
+
+    const sheetInfo = (result.sheets || []).map(s => `${s.sheet}(${s.parsed}条)`).join('、');
+    setQcStatus('ok',
+      `✅ 同步成功：新增 ${result.inserted} 条，跳过重复 ${result.skipped} 条 | ${sheetInfo}`
+    );
+
+    // 同步完成后重新从 qc_records 加载数据
+    await loadFromQcRecords();
+
+  } catch(e) {
+    setQcStatus('err', '❌ 同步失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 同步飞书数据';
+  }
+}
+
+// ──── 从 Supabase qc_records 表加载数据并渲染 ────
+async function loadFromQcRecords() {
+  try {
+    // 取本月数据（最多取最新6000条）
+    const { data, error } = await _supa
+      .from('qc_records')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(6000);
+
+    if (error || !data || data.length === 0) return false;
+
+    // 转换为系统 session 格式
+    const sessions = data.map(r => ({
+      month:       r.month,
+      date:        r.date,
+      shop:        r.shop,
+      id:          r.session_id,
+      agent:       r.agent,
+      nickname:    r.nickname || '',
+      scenario:    r.scenario || '',
+      dim:         r.dim || '',
+      deduct:      r.deduct || 0,
+      issue:       r.issue || '',
+      responsible: r.responsible || '',
+      tip:         r.tip || '',
+      pass:        r.pass,
+      type:        '',
+    }));
+
+    const stats = computeAllStats(sessions);
+
+    // 更新全局变量
+    Object.assign(QC_SUMMARY, {
+      total:    stats.total,
+      passCnt:  stats.passCnt,
+      failCnt:  stats.failCnt,
+      passRate: stats.passRate
+    });
+    QC_SESSIONS.splice(0, QC_SESSIONS.length, ...sessions);
+    BAD_SESSIONS.splice(0, BAD_SESSIONS.length, ...stats.badSessions);
+    AGENT_QC.splice(0, AGENT_QC.length, ...stats.agentQC);
+    SHOP_QC.splice(0, SHOP_QC.length, ...stats.shopQC);
+    ALL_SHOPS.splice(0, ALL_SHOPS.length, ...stats.allShops);
+    Object.keys(ISSUE_FREQ).forEach(k => delete ISSUE_FREQ[k]);
+    Object.assign(ISSUE_FREQ, stats.issueFreq);
+    Object.keys(DIM_FREQ).forEach(k => delete DIM_FREQ[k]);
+    Object.assign(DIM_FREQ, stats.dimFreq);
+    QC_CONFIG.month = stats.month;
+
+    // 读取最后同步时间
+    const { data: cfgRow } = await _supa
+      .from('app_config')
+      .select('value')
+      .eq('key', 'last_sync_at')
+      .single();
+
+    let syncLabel = '飞书同步';
+    if (cfgRow?.value) {
+      const d = new Date(cfgRow.value);
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mi = String(d.getMinutes()).padStart(2,'0');
+      syncLabel = `飞书同步 · ${mm}-${dd} ${hh}:${mi}`;
+    }
+    QC_CONFIG.lastUpdated = syncLabel;
+    document.getElementById('lastUpdateTime').textContent = syncLabel;
+
+    // 标记数据来源
+    const srcEl = document.getElementById('qcDataSource');
+    if (srcEl) srcEl.textContent = '📡 数据来自飞书';
+
+    // 重新渲染所有模块
+    renderDashboard();
+    initDetailPage();
+    initAgentPage();
+
+    return true;
+  } catch(e) {
+    console.warn('[loadFromQcRecords 失败]', e.message);
+    return false;
+  }
 }
 
 // ============================================================
