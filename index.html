@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.0/papaparse.min.js"></script>
 <script>
 // ============================================================
 // 【第一步配置这里】填入你的 Supabase 项目信息
@@ -58,6 +59,55 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   .content { padding: 24px; max-width: 1400px; margin: 0 auto; }
   .page { display: none; }
   .page.active { display: block; }
+
+  /* ===== CSV 上传栏 ===== */
+  .qc-upload-bar {
+    background: white; border: 1.5px solid var(--border); border-radius: 12px;
+    padding: 14px 20px; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .qc-upload-icon { font-size: 22px; flex-shrink: 0; }
+  .qc-upload-info { flex: 1; min-width: 200px; }
+  .qc-upload-info-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .qc-upload-info-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .qc-upload-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .qc-file-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #f5f5f5; color: var(--text); border: 1px solid var(--border);
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    transition: background .15s;
+  }
+  .qc-file-label:hover { background: #eee; }
+  .qc-upload-btn {
+    background: var(--primary); color: white; border: none;
+    padding: 7px 18px; border-radius: 8px; font-size: 13px;
+    font-weight: 700; cursor: pointer; transition: background .15s;
+  }
+  .qc-upload-btn:hover { background: var(--primary-dark); }
+  .qc-upload-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .qc-upload-status { font-size: 12px; color: var(--text2); width: 100%; margin-top: 4px; }
+  .qc-upload-status.ok { color: var(--pass); }
+  .qc-upload-status.err { color: var(--fail); }
+  .qc-selected-files { font-size: 12px; color: var(--text2); }
+
+  /* 解析预览弹窗 */
+  #qcPreviewModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 950; display: none; align-items: center; justify-content: center;
+  }
+  #qcPreviewModal.open { display: flex; }
+  .qc-preview-box {
+    background: white; border-radius: 14px; padding: 28px;
+    width: 90%; max-width: 560px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .qc-preview-title { font-size: 16px; font-weight: 700; }
+  .qc-preview-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .qc-preview-stat { background: #f8f8f8; border-radius: 8px; padding: 12px 16px; }
+  .qc-preview-stat-label { font-size: 11px; color: var(--text2); }
+  .qc-preview-stat-val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .qc-preview-actions { display: flex; gap: 12px; justify-content: flex-end; }
+  .btn-qc-confirm { background: var(--primary); color: white; border: none; padding: 10px 28px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-qc-cancel { background: #f0f0f0; color: var(--text2); border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
 
   /* Stats Cards */
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
@@ -474,6 +524,21 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 </div>
 
 <!-- ===== 店铺流程编辑弹窗 ===== -->
+<!-- CSV 质检解析预览弹窗 -->
+<div id="qcPreviewModal">
+  <div class="qc-preview-box">
+    <div class="qc-preview-title">📊 解析预览 — 是否更新系统数据？</div>
+    <div class="qc-preview-stats" id="qcPreviewStats"></div>
+    <div style="font-size:12px;color:var(--text2);background:#fff9f0;border:1px solid #ffe0b2;border-radius:8px;padding:10px 14px">
+      ⚠️ 确认后将替换当前所有质检数据，所有模块同步刷新
+    </div>
+    <div class="qc-preview-actions">
+      <button class="btn-qc-cancel" onclick="closeQcPreview()">取消</button>
+      <button class="btn-qc-confirm" id="btnQcConfirm" onclick="confirmQcUpdate()">✅ 确认更新</button>
+    </div>
+  </div>
+</div>
+
 <!-- AI 解析预览弹窗 -->
 <div id="aiPreviewModal">
   <div class="ai-preview-box">
@@ -527,6 +592,29 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 <!-- 概览页 -->
 <div class="content">
 <div class="page active" id="page-dashboard">
+
+  <!-- CSV 上传栏（仅 admin 可见） -->
+  <div id="qcUploadBar" style="display:none">
+    <div class="qc-upload-bar">
+      <div class="qc-upload-icon">📂</div>
+      <div class="qc-upload-info">
+        <div class="qc-upload-info-title">上传质检数据（CSV）</div>
+        <div class="qc-upload-info-sub" id="qcCurrentInfo">
+          当前：<span id="qcInfoMonth">2026年4月</span> · <span id="qcInfoTotal">--</span>条 · 最后更新 <span id="qcInfoDate">--</span>
+        </div>
+      </div>
+      <div class="qc-upload-actions">
+        <label class="qc-file-label" for="qcFileInput">
+          📄 选择文件（可多选）
+          <input type="file" id="qcFileInput" style="display:none" accept=".csv" multiple onchange="onQcFileSelected(this)">
+        </label>
+        <div class="qc-selected-files" id="qcSelectedFiles"></div>
+        <button class="qc-upload-btn" id="qcUploadBtn" onclick="startQcParse()" disabled>上传并解析</button>
+      </div>
+      <div class="qc-upload-status" id="qcUploadStatus"></div>
+    </div>
+  </div>
+
   <div class="stats-grid" id="statsGrid"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
     <div class="section">
@@ -2146,23 +2234,28 @@ function normalizeShopNames() {
 }
 
 // ============ 初始化 ============
-window.onload = function() {
-  normalizeShopNames();
-  QC_CONFIG.lastUpdated && (document.getElementById('lastUpdateTime').textContent = QC_CONFIG.lastUpdated);
+// 图表实例（用于更新时销毁重建）
+let _chartAgentInst = null;
+let _chartIssueInst = null;
 
-  // ── 用新版合格率数据 ──
-  const total    = QC_SUMMARY?.total    || QC_SESSIONS.length;
-  const passCnt  = QC_SUMMARY?.passCnt  || 0;
-  const failCnt  = QC_SUMMARY?.failCnt  || 0;
-  const passRate = QC_SUMMARY?.passRate || 0;
-  const agentCnt = AGENT_QC?.length || AGENT_SUMMARY?.length || 0;
+// ──── Dashboard 渲染（可重复调用）────
+function renderDashboard() {
+  // 销毁旧图表
+  if (_chartAgentInst) { _chartAgentInst.destroy(); _chartAgentInst = null; }
+  if (_chartIssueInst) { _chartIssueInst.destroy(); _chartIssueInst = null; }
+
+  const total      = QC_SUMMARY?.total    || QC_SESSIONS.length;
+  const passCnt    = QC_SUMMARY?.passCnt  || 0;
+  const failCnt    = QC_SUMMARY?.failCnt  || 0;
+  const passRate   = QC_SUMMARY?.passRate || 0;
+  const agentCnt   = AGENT_QC?.length || 0;
   const unpassAgents = (AGENT_QC||[]).filter(a => !a.ok).length;
+  const monthLabel = QC_CONFIG.month ? QC_CONFIG.month.replace('-','年') + '月' : '本期';
 
   document.getElementById('passRateBadge').textContent = `合格率 ${passRate}%`;
 
-  // Stats Cards
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card"><div class="stat-label">本期质检总条数</div><div class="stat-value">${total}</div><div class="stat-sub">2026年4月</div></div>
+    <div class="stat-card"><div class="stat-label">本期质检总条数</div><div class="stat-value">${total}</div><div class="stat-sub">${monthLabel}</div></div>
     <div class="stat-card green"><div class="stat-label">整体合格率</div><div class="stat-value" style="color:${passRate>=90?'var(--pass)':'var(--fail)'}">${passRate}%</div><div class="stat-sub">合格线：90%，合格${passCnt}条</div></div>
     <div class="stat-card red"><div class="stat-label">不合格条数</div><div class="stat-value" style="color:var(--fail)">${failCnt}</div><div class="stat-sub">需重点复盘</div></div>
     <div class="stat-card orange"><div class="stat-label">未达标客服</div><div class="stat-value" style="color:var(--warn)">${unpassAgents}</div><div class="stat-sub">合格率低于90%</div></div>
@@ -2170,13 +2263,11 @@ window.onload = function() {
     <div class="stat-card"><div class="stat-label">质检客服数</div><div class="stat-value">${agentCnt}</div><div class="stat-sub">${(AGENT_QC||[]).map(a=>a.name).join('、')}</div></div>
   `;
 
-  // 重点关注人员
   renderFocusAgents();
 
-  // 图表 - 客服合格率
   const agentNames = (AGENT_QC||[]).map(a => a.name);
   const agentRates = (AGENT_QC||[]).map(a => a.rate);
-  new Chart(document.getElementById('agentChart'), {
+  _chartAgentInst = new Chart(document.getElementById('agentChart'), {
     type: 'bar',
     data: {
       labels: agentNames,
@@ -2192,17 +2283,14 @@ window.onload = function() {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        y: { min: 60, max: 100, grid: { color: '#f0f0f0' },
-          ticks: { callback: v => v + '%' } },
+        y: { min: 60, max: 100, grid: { color: '#f0f0f0' }, ticks: { callback: v => v + '%' } },
         x: { grid: { display: false } }
       }
     }
   });
 
-  // 图表 - 问题场景分布
-  const issueFreq = ISSUE_FREQ || {};
-  const topIssues = Object.entries(issueFreq).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  new Chart(document.getElementById('issueChart'), {
+  const topIssues = Object.entries(ISSUE_FREQ||{}).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  _chartIssueInst = new Chart(document.getElementById('issueChart'), {
     type: 'doughnut',
     data: {
       labels: topIssues.map(i => i[0]),
@@ -2214,9 +2302,20 @@ window.onload = function() {
       plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } }
   });
 
-  // 初始化明细页
+  // 同步更新上传栏的当前数据信息
+  const infoMonth = document.getElementById('qcInfoMonth');
+  const infoTotal = document.getElementById('qcInfoTotal');
+  const infoDate  = document.getElementById('qcInfoDate');
+  if (infoMonth) infoMonth.textContent = monthLabel;
+  if (infoTotal) infoTotal.textContent = total;
+  if (infoDate)  infoDate.textContent  = QC_CONFIG.lastUpdated || '—';
+}
+
+window.onload = function() {
+  normalizeShopNames();
+  QC_CONFIG.lastUpdated && (document.getElementById('lastUpdateTime').textContent = QC_CONFIG.lastUpdated);
+  renderDashboard();
   initDetailPage();
-  // 初始化客服页
   initAgentPage();
 };
 
@@ -3243,16 +3342,19 @@ function applyPermissions(role) {
   const addRosterBtn = document.getElementById('btnAddRoster');
   if (addRosterBtn) addRosterBtn.style.display = (role==='admin'||role==='supervisor') ? 'block' : 'none';
 
-  // 编辑按钮 & AI上传面板仅 admin 可见
+  // 编辑按钮 & AI上传面板 & CSV上传栏 仅 admin 可见
   const editBtn = document.getElementById('flowEditBtn');
   const aiPanel = document.getElementById('aiUploadPanel');
+  const qcBar   = document.getElementById('qcUploadBar');
   if (role === 'admin') {
     editBtn.classList.add('visible');
     if (aiPanel) aiPanel.style.display = 'block';
+    if (qcBar)   qcBar.style.display   = 'block';
   } else {
     editBtn.classList.remove('visible');
     if (aiPanel) aiPanel.style.display = 'none';
-    if (_editMode) toggleEditMode(); // 强制退出编辑模式
+    if (qcBar)   qcBar.style.display   = 'none';
+    if (_editMode) toggleEditMode();
   }
 }
 
@@ -3639,6 +3741,240 @@ function renderJsonToHtml(parsed) {
       </table>
     </div>
   `).join('');
+}
+
+// ============================================================
+// ★★★  CSV 质检数据上传解析  ★★★
+// ============================================================
+
+// 排除名单（名字包含任一关键词则排除）
+const QC_EXCLUDE = ['机器人', 'AI', 'ai', '售后', '实习生', '寇燕雨'];
+
+// 店铺名称合并映射（解析用，与 SHOP_NAME_MAP 合并）
+const UPLOAD_SHOP_MAP = {
+  '怡宝':        '华润怡宝',
+  '麦当劳会员店': '麦当劳官方旗舰店',
+  '爱他美AP':    '爱他美奶粉海外旗舰店',
+  '至熠':        '爱他美至熠系列',
+  '爱他美':      '爱他美奶粉海外旗舰店',
+};
+
+// 解析后的暂存数据（等待用户确认）
+let _pendingQcData = null;
+
+// 是否排除该客服
+function shouldExcludeAgent(name) {
+  if (!name) return true;
+  return QC_EXCLUDE.some(kw => name.includes(kw));
+}
+
+// ──── 文件选择 ────
+function onQcFileSelected(input) {
+  const files = Array.from(input.files);
+  const csvFiles = files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+  const el = document.getElementById('qcSelectedFiles');
+  const btn = document.getElementById('qcUploadBtn');
+  if (csvFiles.length === 0) {
+    el.textContent = '';
+    btn.disabled = true;
+    return;
+  }
+  el.textContent = csvFiles.map(f => f.name).join('、');
+  btn.disabled = false;
+  setQcStatus('', '');
+}
+
+// ──── 开始解析 ────
+async function startQcParse() {
+  const input = document.getElementById('qcFileInput');
+  const files = Array.from(input.files).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  if (!files.length) return;
+
+  const btn = document.getElementById('qcUploadBtn');
+  btn.disabled = true;
+  setQcStatus('', '⏳ 解析中...');
+
+  try {
+    const sessions = await parseQCFiles(files);
+    const stats = computeAllStats(sessions);
+    _pendingQcData = { sessions, stats };
+    showQcPreview(stats);
+    setQcStatus('', '');
+  } catch(e) {
+    setQcStatus('err', '❌ ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+// ──── 解析多个 CSV ────
+async function parseQCFiles(files) {
+  const REQUIRED = ['日期', '客服真实姓名', '扣分维度'];
+  const allRows = [];
+
+  for (const file of files) {
+    const text = await file.text();
+    const result = Papa.parse(text, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() });
+    const cols = result.meta.fields || [];
+    const missing = REQUIRED.filter(c => !cols.includes(c));
+    if (missing.length) {
+      throw new Error(`「${file.name}」格式不符，请使用飞鸽导出的质检表（缺少列：${missing.join('、')}）`);
+    }
+    allRows.push(...result.data);
+  }
+
+  const sessions = [];
+  for (const row of allRows) {
+    const agent = (row['客服真实姓名'] || '').trim();
+    if (shouldExcludeAgent(agent)) continue;
+
+    const deductRaw = row['扣分值【1-100】'] || row['扣分值'] || '0';
+    const deduct = parseFloat(deductRaw) || 0;
+    const dim = (row['扣分维度'] || '').trim();
+    const isPass = deduct === 0 || dim === '无扣分' || dim === '';
+
+    const rawShop = (row['店铺'] || '').trim();
+    const shop = UPLOAD_SHOP_MAP[rawShop] || SHOP_NAME_MAP[rawShop] || rawShop;
+
+    const date = (row['日期'] || '').trim();
+    const month = date.slice(0, 7);
+
+    sessions.push({
+      month, date, shop,
+      id:          (row['会话ID'] || '').trim(),
+      agent,
+      nickname:    (row['客服昵称'] || '').trim(),
+      scenario:    (row['会话问题分类'] || '').trim(),
+      dim, deduct,
+      issue:       (row['此对话中客服问题点'] || '').trim(),
+      responsible: (row['责任方'] || '').trim(),
+      tip:         (row['话术优化点'] || '').trim(),
+      pass:        isPass,
+      type:        '',
+    });
+  }
+
+  if (!sessions.length) throw new Error('未找到有效质检记录（所有记录均在排除名单中）');
+  return sessions;
+}
+
+// ──── 计算统计数据 ────
+function computeAllStats(sessions) {
+  const total   = sessions.length;
+  const passCnt = sessions.filter(s => s.pass).length;
+  const failCnt = total - passCnt;
+  const passRate = total > 0 ? Math.round(passCnt / total * 1000) / 10 : 0;
+
+  // AGENT_QC
+  const agentMap = {};
+  sessions.forEach(s => {
+    if (!agentMap[s.agent]) agentMap[s.agent] = { name: s.agent, total: 0, pass: 0, fail: 0, shops: {} };
+    const a = agentMap[s.agent];
+    a.total++;
+    s.pass ? a.pass++ : a.fail++;
+    if (!a.shops[s.shop]) a.shops[s.shop] = { total: 0, pass: 0, fail: 0, rate: 0 };
+    const sh = a.shops[s.shop];
+    sh.total++;
+    s.pass ? sh.pass++ : sh.fail++;
+  });
+  const agentQC = Object.values(agentMap).map(a => {
+    a.rate = a.total > 0 ? Math.round(a.pass / a.total * 1000) / 10 : 0;
+    a.ok = a.rate >= 90;
+    Object.values(a.shops).forEach(sh => { sh.rate = sh.total > 0 ? Math.round(sh.pass / sh.total * 1000) / 10 : 0; });
+    return a;
+  }).sort((a, b) => a.rate - b.rate);
+
+  // SHOP_QC
+  const shopMap = {};
+  sessions.forEach(s => {
+    if (!shopMap[s.shop]) shopMap[s.shop] = { shop: s.shop, total: 0, pass: 0, fail: 0, rate: 0 };
+    const sh = shopMap[s.shop];
+    sh.total++;
+    s.pass ? sh.pass++ : sh.fail++;
+  });
+  const shopQC = Object.values(shopMap).map(sh => {
+    sh.rate = sh.total > 0 ? Math.round(sh.pass / sh.total * 1000) / 10 : 0;
+    return sh;
+  }).sort((a, b) => a.rate - b.rate);
+
+  const allShops = [...new Set(sessions.map(s => s.shop).filter(Boolean))].sort();
+  const badSessions = sessions.filter(s => !s.pass);
+
+  const issueFreq = {};
+  badSessions.forEach(s => { if (s.scenario) issueFreq[s.scenario] = (issueFreq[s.scenario] || 0) + 1; });
+
+  const dimFreq = {};
+  badSessions.forEach(s => { if (s.dim && s.dim !== '无扣分') dimFreq[s.dim] = (dimFreq[s.dim] || 0) + 1; });
+
+  const months = [...new Set(sessions.map(s => s.month).filter(Boolean))].sort();
+  const month = months[months.length - 1] || QC_CONFIG.month;
+  const agentNames = [...new Set(sessions.map(s => s.agent))];
+
+  return { total, passCnt, failCnt, passRate, agentQC, shopQC, allShops, badSessions, issueFreq, dimFreq, month, agentNames };
+}
+
+// ──── 显示预览弹窗 ────
+function showQcPreview(stats) {
+  const { total, passCnt, failCnt, passRate, agentQC, shopQC, month } = stats;
+  const monthLabel = month ? month.replace('-','年') + '月' : '本期';
+  document.getElementById('qcPreviewStats').innerHTML = `
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">总记录数</div><div class="qc-preview-stat-val">${total} 条</div></div>
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">整体合格率</div><div class="qc-preview-stat-val" style="color:${passRate>=90?'var(--pass)':'var(--fail)'}">${passRate}%</div></div>
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">质检客服人数</div><div class="qc-preview-stat-val">${agentQC.length} 人</div></div>
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">涉及店铺数</div><div class="qc-preview-stat-val">${shopQC.length} 个</div></div>
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">不合格条数</div><div class="qc-preview-stat-val" style="color:var(--fail)">${failCnt} 条</div></div>
+    <div class="qc-preview-stat"><div class="qc-preview-stat-label">数据月份</div><div class="qc-preview-stat-val" style="font-size:15px">${monthLabel}</div></div>
+  `;
+  document.getElementById('qcPreviewModal').classList.add('open');
+}
+
+function closeQcPreview() {
+  document.getElementById('qcPreviewModal').classList.remove('open');
+  document.getElementById('qcUploadBtn').disabled = false;
+}
+
+// ──── 确认更新所有数据 ────
+function confirmQcUpdate() {
+  if (!_pendingQcData) return;
+  const { sessions, stats } = _pendingQcData;
+  const { total, passCnt, failCnt, passRate, agentQC, shopQC, allShops, badSessions, issueFreq, dimFreq, month } = stats;
+
+  // 更新全局变量（in-place mutation）
+  Object.assign(QC_SUMMARY, { total, passCnt, failCnt, passRate });
+  QC_SESSIONS.splice(0, QC_SESSIONS.length, ...sessions);
+  BAD_SESSIONS.splice(0, BAD_SESSIONS.length, ...badSessions);
+  AGENT_QC.splice(0, AGENT_QC.length, ...agentQC);
+  SHOP_QC.splice(0, SHOP_QC.length, ...shopQC);
+  ALL_SHOPS.splice(0, ALL_SHOPS.length, ...allShops);
+  Object.keys(ISSUE_FREQ).forEach(k => delete ISSUE_FREQ[k]);
+  Object.assign(ISSUE_FREQ, issueFreq);
+  Object.keys(DIM_FREQ).forEach(k => delete DIM_FREQ[k]);
+  Object.assign(DIM_FREQ, dimFreq);
+  QC_CONFIG.month = month;
+
+  const now = new Date();
+  const ts = `${now.getMonth()+1}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  QC_CONFIG.lastUpdated = ts + '（本次上传）';
+  document.getElementById('lastUpdateTime').textContent = QC_CONFIG.lastUpdated;
+
+  // 重新渲染所有模块
+  renderDashboard();
+  initDetailPage();
+  initAgentPage();
+
+  closeQcPreview();
+  setQcStatus('ok', `✅ 已更新：${total} 条记录，${agentQC.length} 名客服，合格率 ${passRate}%`);
+
+  // 重置文件输入
+  document.getElementById('qcFileInput').value = '';
+  document.getElementById('qcSelectedFiles').textContent = '';
+  document.getElementById('qcUploadBtn').disabled = true;
+  _pendingQcData = null;
+}
+
+function setQcStatus(type, msg) {
+  const el = document.getElementById('qcUploadStatus');
+  el.className = 'qc-upload-status' + (type ? ' ' + type : '');
+  el.textContent = msg;
 }
 
 // ============================================================
