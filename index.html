@@ -543,11 +543,13 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     </div>
     <div class="login-field">
       <label>邮箱账号</label>
-      <input type="email" id="loginEmail" placeholder="请输入邮箱" autocomplete="username">
+      <input type="email" id="loginEmail" placeholder="请输入邮箱" autocomplete="username"
+        onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()">
     </div>
     <div class="login-field">
       <label>密码</label>
-      <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+      <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="login-btn" id="loginBtn" onclick="doLogin()">登 录</button>
     <div class="login-error" id="loginError"></div>
@@ -3434,8 +3436,12 @@ async function doLogin() {
       msg.includes('Invalid login') ? '邮箱或密码错误，请重试' :
       msg.includes('Email not confirmed') ? '邮箱尚未验证，请检查邮件' : msg
     );
-    btn.disabled = false;
-    btn.textContent = '登 录';
+  } finally {
+    // 无论成功失败，只要登录界面还在就恢复按钮
+    if (document.getElementById('loginOverlay').style.display !== 'none') {
+      btn.disabled = false;
+      btn.textContent = '登 录';
+    }
   }
 }
 
@@ -3480,9 +3486,14 @@ async function onLoginSuccess(user) {
 
 // ──── 登出 ────
 async function doLogout() {
-  await _supa.auth.signOut();
+  try { await _supa.auth.signOut(); } catch(e) { console.warn('signOut:', e.message); }
   _currentUser = null;
   _currentRole = null;
+  // 退出绩效方案编辑模式
+  if (_schemeEditing) { _schemeEditing = false; _exitSchemeEditUI(); }
+  // 退出店铺流程编辑模式
+  if (_editMode) toggleEditMode();
+  // 重置登录界面
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPassword').value = '';
@@ -3490,8 +3501,8 @@ async function doLogout() {
   document.getElementById('loginBtn').disabled = false;
   document.getElementById('loginBtn').textContent = '登 录';
   document.getElementById('userInfoBar').style.display = 'none';
-  // 退出编辑模式
-  if (_editMode) toggleEditMode();
+  // 让邮箱框获得焦点，方便直接输入
+  setTimeout(() => document.getElementById('loginEmail').focus(), 100);
 }
 
 // ──── 渲染顶栏用户信息 ────
