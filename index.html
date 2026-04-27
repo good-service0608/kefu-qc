@@ -15,7 +15,8 @@
 // 注册后在 Project Settings → API 里找到这两个值
 // ============================================================
 const SUPABASE_URL = 'https://zkbzkyywdeswufpobtuo.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Ei7Eo2EPBN-xUcJ3shBEHQ_6X2l8DD3';
+const SUPABASE_ANON_KEY = 'sb_publishable_Ei7Eo2EPBN-xUcJ3shBEHQ_6X2l8DD3'; // 用于 Supabase DB
+const SUPABASE_JWT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYnpreXl3ZGVzd3VmcG9idHVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MDY5ODUsImV4cCI6MjA5MTk4Mjk4NX0._y7IWzffpmkz2bMuc09PjEPtWxey_giJQaHZqra-HSY'; // 用于 Edge Function 调用
 // Claude API Key（在 console.anthropic.com 获取，填入后才能使用 AI 解析功能）
 const CLAUDE_API_KEY = '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';
 
@@ -4008,7 +4009,7 @@ async function syncFeishu() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        'Authorization': `Bearer ${SUPABASE_JWT_KEY}`
       }
     });
     const result = await res.json();
