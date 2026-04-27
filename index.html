@@ -2384,12 +2384,22 @@ window.onload = function() {
 // ============ 明细页 ============
 function initDetailPage() {
   const sessions = QC_SESSIONS || [];
+
+  // 先清空旧选项（保留第一个"全部"选项）
+  ['shopFilter','agentFilter','dateFilter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    while (el.options.length > 1) el.remove(1);
+  });
+
   const shops  = [...new Set(sessions.map(s=>s.shop).filter(Boolean))].sort();
-  const agents = [...new Set(sessions.map(s=>s.agent).filter(Boolean))].sort();
+  const agents = [...new Set(sessions.map(s=>s.agent).filter(v => v && v !== 'nan' && v !== 'NaN'))].sort();
   const dates  = [...new Set(sessions.map(s=>s.date).filter(Boolean))].sort();
-  shops.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('shopFilter').appendChild(o); });
+
+  shops.forEach(v  => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('shopFilter').appendChild(o); });
   agents.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('agentFilter').appendChild(o); });
-  dates.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('dateFilter').appendChild(o); });
+  dates.forEach(v  => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('dateFilter').appendChild(o); });
+
   renderDetailTable(sessions);
 }
 
