@@ -21,6 +21,36 @@ const SUPABASE_JWT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 const CLAUDE_API_KEY = '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';
 
 const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── 客服名册（来自"各店铺子账号信息"CSV）──────────────────────
+// key = 真实姓名，value = 该人所有已知昵称列表
+const ROSTER_MAP = {
+  '马子清': ['生活官：清荷','客服-清荷','客服-吉小清'],
+  '靳娇娇': ['生活官：娇娇','客服-小娇','客服-吉小娇'],
+  '费琳渊': ['生活官：啾啾','客服-小琳','客服- 吉小琳','客服-小琳'],
+  '苏迎欣': ['生活官：咪咪','客服-茶茶','客服-吉小欣','客服-苏苏'],
+  '王蕊':   ['生活官：花花','客服-暖暖','客服-吉小蕊','客服-小蕊'],
+  '杨佳瑶': ['生活官:猫猫','客服—猫猫','客服—吉一一','客服-猫猫'],
+  '曾苗欣': ['生活官：吸引'],
+  '张佳茹': ['生活官：团团','客服-小佳','客服-吉小佳'],
+  '屈李佩': ['生活官：小曦'],
+  '郭洪君': ['生活官：樱樱'],
+  '王全':   ['生活官:图图'],
+  '郭毅':   ['客服-小蕾','客服-a2小G','客服-爱小G','客服-熠小G','客服-麦小G','客服-怡小G'],
+  '李文婕': ['客服-浅浅','客服-a2小妖','客服-STOKKE小妖','客服-爱小妖','客服-熠小妖','客服-麦小妖','客服-怡小鹤'],
+  '彭阮东': ['客服-a2小东','客服-STOKKE小东','客服-爱小东','客服-熠小东','客服-麦小东','客服-怡小柚'],
+  '卢淼':   ['客服-小淼','客服-a2小淼','客服-STOKKE小淼','客服-爱小淼','客服-熠小淼','客服-麦小淼','客服-怡小淼'],
+  '何友婕': ['微聚-小一','客服-a2小一','客服--STOKKE小一','客服-爱小一','客服-熠小一','客服-麦小一','客服-怡小橙'],
+  '贺尖尖': ['客服-小张','客服-a2-小风','客服-STOKKE小风','客服-爱小风','客服-熠小风','客服-麦小风','客服-怡小风'],
+  '张曼':   ['客服-云薇','客服-STOKKE小薇','客服-爱小薇','客服-熠小薇','客服-麦小薇','客服-怡小薇'],
+};
+// 预构建 name→Set<nickname> 加速查找
+const _rosterNickSet = {};
+for (const [name, nicks] of Object.entries(ROSTER_MAP)) {
+  _rosterNickSet[name] = new Set(nicks);
+}
+// 名册中所有规范真实姓名
+const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 </script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -679,6 +709,7 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             <th style="min-width:100px">店铺</th>
             <th style="min-width:130px">会话ID</th>
             <th>客服</th>
+            <th>昵称</th>
             <th>问题场景</th>
             <th>结果</th>
             <th>扣分维度</th>
@@ -1644,13 +1675,34 @@ const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   .brand-table tr:last-child td{border-bottom:none}
   .badge-pass{background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
   .badge-warn{background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  /* 编辑模式 */
+  .scheme-editing .scheme-card{outline:2px dashed #1565C0;outline-offset:2px;position:relative;cursor:text}
+  .scheme-editing .scheme-card:focus{outline:2px solid #1565C0;background:#fafeff}
+  .scheme-editing .scheme-card::before{content:'点击此卡片可直接编辑';position:absolute;top:6px;right:10px;font-size:10px;color:#1565C0;opacity:0.7}
 </style>
 
-<div class="scheme-role-tabs">
-  <div class="scheme-role-tab active" onclick="switchScheme('reception')">接待客服</div>
-  <div class="scheme-role-tab" onclick="switchScheme('workorder')">工单客服</div>
-  <div class="scheme-role-tab" onclick="switchScheme('leader')">客服组长</div>
-  <div class="scheme-role-tab" onclick="switchScheme('common')">通用规则</div>
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:20px">
+  <div class="scheme-role-tabs" style="margin-bottom:0">
+    <div class="scheme-role-tab active" onclick="switchScheme('reception')">接待客服</div>
+    <div class="scheme-role-tab" onclick="switchScheme('workorder')">工单客服</div>
+    <div class="scheme-role-tab" onclick="switchScheme('leader')">客服组长</div>
+    <div class="scheme-role-tab" onclick="switchScheme('common')">通用规则</div>
+  </div>
+  <div id="schemeEditBar" style="display:none;gap:8px;align-items:center">
+    <button id="schemeEditBtn" onclick="toggleSchemeEdit()"
+      style="padding:7px 16px;border-radius:8px;border:1.5px solid #1565C0;background:white;color:#1565C0;font-weight:600;font-size:13px;cursor:pointer">
+      ✏️ 编辑方案
+    </button>
+    <button id="schemeSaveBtn" onclick="saveSchemeEdit()" style="display:none;
+      padding:7px 16px;border-radius:8px;border:none;background:#2E7D32;color:white;font-weight:600;font-size:13px;cursor:pointer">
+      💾 保存
+    </button>
+    <button id="schemeCancelBtn" onclick="cancelSchemeEdit()" style="display:none;
+      padding:7px 16px;border-radius:8px;border:1.5px solid #999;background:white;color:#666;font-weight:600;font-size:13px;cursor:pointer">
+      取消
+    </button>
+    <span id="schemeSaveStatus" style="font-size:12px;color:#999"></span>
+  </div>
 </div>
 
 <!-- 接待客服 -->
@@ -2365,11 +2417,42 @@ function clearFilters() {
   renderDetailTable(QC_SESSIONS || []);
 }
 
+// 昵称名册核对：返回 {badge, tip}
+function getNicknameBadge(agent, nickname) {
+  if (!nickname) return { badge: '<span style="color:#aaa;font-size:11px">—</span>', tip: '' };
+  const inRoster = ROSTER_AGENTS.has(agent);
+  if (!inRoster) {
+    // 人名不在名册，昵称直接显示，加灰色标注
+    return {
+      badge: `<span style="font-size:12px">${esc(nickname)}</span>
+              <span title="该客服真实姓名不在名册中" style="font-size:10px;background:#f0f0f0;color:#999;padding:1px 5px;border-radius:8px;margin-left:4px">📋不在名册</span>`,
+      tip: ''
+    };
+  }
+  const nickSet = _rosterNickSet[agent] || new Set();
+  if (nickSet.has(nickname)) {
+    // 完全匹配
+    return {
+      badge: `<span style="font-size:12px">${esc(nickname)}</span>
+              <span title="昵称与名册一致" style="font-size:10px;background:#E8F5E9;color:#2E7D32;padding:1px 5px;border-radius:8px;margin-left:4px">✓</span>`,
+      tip: ''
+    };
+  } else {
+    // 人在名册但昵称对不上
+    const known = [...nickSet].join('、');
+    return {
+      badge: `<span style="font-size:12px;color:#E65100">${esc(nickname)}</span>
+              <span title="名册中该客服的昵称为：${known}" style="font-size:10px;background:#FFF3E0;color:#E65100;padding:1px 5px;border-radius:8px;margin-left:4px;cursor:help">⚠️待核对</span>`,
+      tip: known
+    };
+  }
+}
+
 function renderDetailTable(sessions) {
   document.getElementById('filterCount').textContent = `显示 ${sessions.length} / ${(QC_SESSIONS||[]).length} 条`;
   const tbody = document.getElementById('detailBody');
   if (!sessions.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty"><div class="empty-icon">🔍</div><p>无匹配数据</p></div></td></tr>`;
     return;
   }
   tbody.innerHTML = sessions.map((s, i) => {
@@ -2378,15 +2461,17 @@ function renderDetailTable(sessions) {
       ? '<span style="color:var(--pass);font-weight:600">✅ 合格</span>'
       : '<span style="color:var(--fail);font-weight:600">❌ 不合格</span>';
     const dimTag = s.dim && s.dim !== '无扣分' && s.dim !== 'nan'
-      ? `<span class="tag tag-dim1" style="font-size:11px">${s.dim}</span>` : '—';
-    const issue = s.issue && s.issue !== 'nan' ? s.issue : '—';
+      ? `<span class="tag tag-dim1" style="font-size:11px">${esc(s.dim)}</span>` : '—';
+    const issue = s.issue && s.issue !== 'nan' ? esc(s.issue) : '—';
+    const { badge: nickBadge } = getNicknameBadge(s.agent, s.nickname);
     return `<tr class="${rowCls}">
       <td style="color:var(--text2);font-size:12px">${i+1}</td>
-      <td style="white-space:nowrap;font-size:12px">${s.date}</td>
-      <td><span style="font-size:11px;background:#f0f0f0;padding:2px 6px;border-radius:4px">${s.shop}</span></td>
-      <td style="font-size:10px;color:var(--text2);max-width:120px;word-break:break-all">${s.id}</td>
+      <td style="white-space:nowrap;font-size:12px">${esc(s.date)}</td>
+      <td><span style="font-size:11px;background:#f0f0f0;padding:2px 6px;border-radius:4px">${esc(s.shop)}</span></td>
+      <td style="font-size:10px;color:var(--text2);max-width:120px;word-break:break-all">${esc(s.id)}</td>
       <td>${getAgentTag(s.agent)}</td>
-      <td style="font-size:12px">${s.scenario||'—'}</td>
+      <td style="white-space:nowrap">${nickBadge}</td>
+      <td style="font-size:12px">${esc(s.scenario||'—')}</td>
       <td>${passTag}</td>
       <td>${dimTag}</td>
       <td style="font-size:12px;color:#555;max-width:220px">${issue}</td>
@@ -2624,6 +2709,89 @@ function switchScheme(val) {
   if (tabs[idx]) tabs[idx].classList.add('active');
   const block = document.getElementById('scheme-' + val);
   if (block) block.classList.add('active');
+}
+
+// ──── 绩效方案编辑 ────────────────────────────────────────────
+const _SCHEME_BLOCKS = ['reception','workorder','leader','common'];
+let _schemeEditing = false;
+let _schemeBackup  = {};
+
+function toggleSchemeEdit() {
+  if (_schemeEditing) { cancelSchemeEdit(); return; }
+  _schemeEditing = true;
+  // 备份原始内容
+  _SCHEME_BLOCKS.forEach(id => {
+    const el = document.getElementById('scheme-' + id);
+    if (el) _schemeBackup[id] = el.innerHTML;
+  });
+  // 开启 contenteditable
+  document.querySelectorAll('#page-scheme .scheme-card').forEach(card => {
+    card.contentEditable = 'true';
+  });
+  document.getElementById('page-scheme').classList.add('scheme-editing');
+  document.getElementById('schemeEditBtn').textContent  = '✏️ 编辑中...';
+  document.getElementById('schemeEditBtn').style.background = '#E3F2FD';
+  document.getElementById('schemeSaveBtn').style.display   = 'inline-block';
+  document.getElementById('schemeCancelBtn').style.display = 'inline-block';
+  document.getElementById('schemeSaveStatus').textContent  = '直接点击卡片内容即可修改';
+}
+
+function cancelSchemeEdit() {
+  _schemeEditing = false;
+  // 还原备份
+  _SCHEME_BLOCKS.forEach(id => {
+    const el = document.getElementById('scheme-' + id);
+    if (el && _schemeBackup[id]) el.innerHTML = _schemeBackup[id];
+  });
+  _exitSchemeEditUI();
+}
+
+function _exitSchemeEditUI() {
+  document.querySelectorAll('#page-scheme .scheme-card').forEach(card => {
+    card.contentEditable = 'false';
+  });
+  document.getElementById('page-scheme').classList.remove('scheme-editing');
+  document.getElementById('schemeEditBtn').textContent = '✏️ 编辑方案';
+  document.getElementById('schemeEditBtn').style.background = 'white';
+  document.getElementById('schemeSaveBtn').style.display   = 'none';
+  document.getElementById('schemeCancelBtn').style.display = 'none';
+  document.getElementById('schemeSaveStatus').textContent  = '';
+}
+
+async function saveSchemeEdit() {
+  const btn = document.getElementById('schemeSaveBtn');
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const upserts = _SCHEME_BLOCKS.map(id => {
+      const el = document.getElementById('scheme-' + id);
+      return { key: 'scheme_block_' + id, value: el ? el.innerHTML : '' };
+    });
+    const { error } = await _supa.from('app_config').upsert(upserts, { onConflict: 'key' });
+    if (error) throw new Error(error.message);
+    _schemeEditing = false;
+    _exitSchemeEditUI();
+    document.getElementById('schemeSaveStatus').textContent = '✅ 已保存';
+    setTimeout(() => { document.getElementById('schemeSaveStatus').textContent = ''; }, 3000);
+  } catch(e) {
+    document.getElementById('schemeSaveStatus').textContent = '❌ 保存失败：' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 保存';
+  }
+}
+
+async function loadSchemeConfig() {
+  try {
+    const keys = _SCHEME_BLOCKS.map(id => 'scheme_block_' + id);
+    const { data } = await _supa.from('app_config').select('key,value').in('key', keys);
+    if (!data || data.length === 0) return;
+    for (const row of data) {
+      const id = row.key.replace('scheme_block_', '');
+      const el = document.getElementById('scheme-' + id);
+      if (el && row.value) el.innerHTML = DOMPurify.sanitize(row.value);
+    }
+  } catch(e) {
+    console.warn('[loadSchemeConfig]', e.message);
+  }
 }
 
 // ============================================================
@@ -3306,6 +3474,8 @@ async function onLoginSuccess(user) {
 
   // 优先从 qc_records 加载质检数据（后台静默执行，不阻塞登录流程）
   loadFromQcRecords().catch(e => console.warn('qc_records 加载失败:', e.message));
+  // 加载绩效方案自定义内容
+  loadSchemeConfig().catch(e => console.warn('loadSchemeConfig 失败:', e.message));
 }
 
 // ──── 登出 ────
@@ -3352,6 +3522,10 @@ function applyPermissions(role) {
   // 名册添加按钮 admin/supervisor 可见
   const addRosterBtn = document.getElementById('btnAddRoster');
   if (addRosterBtn) addRosterBtn.style.display = (role==='admin'||role==='supervisor') ? 'block' : 'none';
+
+  // 绩效方案编辑按钮 admin/supervisor 可见
+  const schemeEditBar = document.getElementById('schemeEditBar');
+  if (schemeEditBar) schemeEditBar.style.display = (role==='admin'||role==='supervisor') ? 'flex' : 'none';
 
   // 编辑按钮 & AI上传面板 & CSV上传栏 仅 admin 可见
   const editBtn = document.getElementById('flowEditBtn');
