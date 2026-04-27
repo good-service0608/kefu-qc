@@ -747,6 +747,25 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   .aq-filter-bar select{padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none}
 </style>
 
+<!-- 筛选栏 -->
+<div class="aq-filter-bar" style="margin-bottom:16px">
+  <label style="font-size:13px;font-weight:600">月份：</label>
+  <select id="aqMonthFilter" onchange="applyAgentFilters()" style="min-width:120px">
+    <option value="">全部月份</option>
+  </select>
+  <label style="font-size:13px;font-weight:600">日期范围：</label>
+  <input type="date" id="aqDateFrom" onchange="applyAgentFilters()"
+    style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+  <span style="color:var(--text2)">—</span>
+  <input type="date" id="aqDateTo" onchange="applyAgentFilters()"
+    style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+  <button onclick="clearAgentFilters()"
+    style="padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:white;font-size:13px;cursor:pointer;color:var(--text2)">
+    清除筛选
+  </button>
+  <span id="aqFilterCount" style="font-size:12px;color:var(--text2)"></span>
+</div>
+
 <!-- 汇总卡片 -->
 <div id="agentGrid"></div>
 
@@ -2493,18 +2512,80 @@ function renderDetailTable(sessions) {
 
 // ============ 客服质检汇总页 ============
 function initAgentPage() {
-  renderAgentMatrix();
+  // 填充月份下拉框
+  const monthSel = document.getElementById('aqMonthFilter');
+  if (monthSel) {
+    while (monthSel.options.length > 1) monthSel.remove(1);
+    const months = [...new Set((QC_SESSIONS||[]).map(s=>s.month).filter(Boolean))].sort().reverse();
+    months.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m;
+      o.textContent = m.replace('-', '年').replace(/(\d+)$/, '$1月');
+      // 默认选中当前月份
+      if (m === new Date().toISOString().slice(0,7)) o.selected = true;
+      monthSel.appendChild(o);
+    });
+  }
+  applyAgentFilters();
 }
 
-function renderAgentMatrix() {
-  const agents   = AGENT_QC || [];
-  const allShops = ALL_SHOPS || [];
+function applyAgentFilters() {
+  const month   = document.getElementById('aqMonthFilter')?.value || '';
+  const dateFrom = document.getElementById('aqDateFrom')?.value  || '';
+  const dateTo   = document.getElementById('aqDateTo')?.value    || '';
+
+  let filtered = QC_SESSIONS || [];
+  if (month)    filtered = filtered.filter(s => s.month === month);
+  if (dateFrom) filtered = filtered.filter(s => s.date >= dateFrom);
+  if (dateTo)   filtered = filtered.filter(s => s.date <= dateTo);
+
+  const total = (QC_SESSIONS||[]).length;
+  const cnt   = filtered.length;
+  const el    = document.getElementById('aqFilterCount');
+  if (el) el.textContent = (month || dateFrom || dateTo) ? `共 ${cnt} / ${total} 条` : `共 ${total} 条`;
+
+  renderAgentMatrix(filtered);
+}
+
+function clearAgentFilters() {
+  const m = document.getElementById('aqMonthFilter');
+  if (m) m.value = '';
+  const f = document.getElementById('aqDateFrom');
+  if (f) f.value = '';
+  const t = document.getElementById('aqDateTo');
+  if (t) t.value = '';
+  applyAgentFilters();
+}
+
+function renderAgentMatrix(filteredSessions) {
+  // 用传入的筛选数据实时计算，没传则用全量
+  const sessions = filteredSessions || QC_SESSIONS || [];
   const COLORS   = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
 
+  // 从筛选后的sessions实时计算每人每店铺的合格数/总数
+  const agentShopMap = {};
+  const shopSet = new Set();
+  sessions.forEach(s => {
+    if (!s.agent) return;
+    if (!agentShopMap[s.agent]) agentShopMap[s.agent] = {};
+    if (!agentShopMap[s.agent][s.shop]) agentShopMap[s.agent][s.shop] = { pass: 0, total: 0 };
+    agentShopMap[s.agent][s.shop].total++;
+    if (s.pass) agentShopMap[s.agent][s.shop].pass++;
+    if (s.shop) shopSet.add(s.shop);
+  });
+
+  const allShops = [...shopSet].sort();
+  const agents = Object.entries(agentShopMap).map(([name, shops]) => {
+    const totalAll = Object.values(shops).reduce((s,v)=>s+v.total,0);
+    const passAll  = Object.values(shops).reduce((s,v)=>s+v.pass,0);
+    const rate     = totalAll ? Math.round(passAll/totalAll*100) : 0;
+    return { name, shops, total: totalAll, pass: passAll, rate, ok: rate >= 90 };
+  });
+
   // 计算每人店铺达标率，用于排序
-  const rows = agents.map((a, origIdx) => {
+  const rows = agents.map(a => {
     const served = Object.keys(a.shops||{}).filter(sh=>(a.shops[sh]?.total||0)>0);
-    const qual   = served.filter(sh=>(a.shops[sh]?.rate||0)>=90);
+    const qual   = served.filter(sh=>{const d=a.shops[sh]; return d&&Math.round(d.pass/d.total*100)>=90;});
     const pct    = served.length ? Math.round(qual.length/served.length*100) : null;
     const str    = served.length ? qual.length+'/'+served.length : '—';
     return {...a, _served:served, _qual:qual, _pct:pct, _str:str};
@@ -2517,9 +2598,9 @@ function renderAgentMatrix() {
     return a._pct - b._pct;
   });
 
-  // QC_SESSIONS 按人索引（用于展开详情）
+  // 按人索引sessions（用于展开不合格详情）
   const sessByAgent = {};
-  (QC_SESSIONS||[]).forEach(s=>{ if(!sessByAgent[s.agent])sessByAgent[s.agent]=[]; sessByAgent[s.agent].push(s); });
+  sessions.forEach(s=>{ if(!sessByAgent[s.agent])sessByAgent[s.agent]=[]; sessByAgent[s.agent].push(s); });
 
   const colCount = allShops.length + 2;
 
@@ -2533,7 +2614,7 @@ function renderAgentMatrix() {
           <div style="font-weight:700;font-size:13px">${a.name}</div>
         </div>
         <div style="font-size:22px;font-weight:700;color:${color}">${a.rate}%</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.total}条 · 不合格${a.fail}条</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.total}条 · 不合格${a.total - a.pass}条</div>
       </div>`;
     }).join('')}
   </div>`;
@@ -2550,10 +2631,11 @@ function renderAgentMatrix() {
     const cells = allShops.map(shop => {
       const sd = a.shops?.[shop];
       if (!sd||!sd.total) return `<td class="aq-cell-empty" style="text-align:center">—</td>`;
-      const ok = sd.rate>=90;
+      const sdRate = Math.round(sd.pass/sd.total*100);
+      const ok = sdRate>=90;
       return `<td style="text-align:center;background:${ok?'rgba(76,175,80,0.09)':'rgba(244,67,54,0.09)'}">
         <div style="font-weight:700;color:${ok?'#4CAF50':'#F44336'}">${sd.pass}/${sd.total}</div>
-        <div style="font-size:11px;color:${ok?'#4CAF50':'#F44336'}">${sd.rate}%</div>
+        <div style="font-size:11px;color:${ok?'#4CAF50':'#F44336'}">${sdRate}%</div>
       </td>`;
     }).join('');
 
