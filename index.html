@@ -5115,10 +5115,10 @@ function kpiDetailHtml(r) {
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">
       <thead><tr>
         <th style="${thStyle}text-align:left">店铺</th>
-        <th style="${thStyle}">接待量</th>
-        <th style="${thStyle}">非满%</th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
-        <th style="${thStyle}">响应(s)</th><th style="${thStyle}">响应达标</th>
-        <th style="${thStyle}">3分回复%</th><th style="${thStyle}">3分达标</th>
+        <th style="${thStyle}">接待量<span style="color:#1565C0;font-size:10px;margin-left:3px">(占30%)</span></th>
+        <th style="${thStyle}">非满%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占30%)</span></th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
+        <th style="${thStyle}">响应(s)<span style="color:#1565C0;font-size:10px;margin-left:3px">(占10%)</span></th><th style="${thStyle}">响应达标</th>
+        <th style="${thStyle}">3分回复%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占10%)</span></th><th style="${thStyle}">3分达标</th>
       </tr></thead><tbody>`;
     for (const s of d.shopDetail) {
       inner+=`<tr style="border-bottom:1px solid #f5f5f5">
@@ -5136,7 +5136,7 @@ function kpiDetailHtml(r) {
     inner+='</tbody></table>';
     // 质检明细
     if (d.qcDetail&&d.qcDetail.length) {
-      inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">✅ 质检明细</div>
+      inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">✅ 质检明细<span style="font-weight:400;color:#555;margin-left:6px">(占20%)</span></div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr>
           <th style="${thStyle}text-align:left">店铺</th>
@@ -5214,10 +5214,10 @@ function kpiDetailHtml(r) {
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
         <th style="${thStyle}text-align:left">店铺</th>
-        <th style="${thStyle}">非满%</th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
-        <th style="${thStyle}">响应(s)</th><th style="${thStyle}">响应达标</th>
-        <th style="${thStyle}">工单达标率%</th><th style="${thStyle}">工单达标</th>
-        <th style="${thStyle}">3分回复%</th><th style="${thStyle}">3分达标</th>
+        <th style="${thStyle}">非满%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占30%)</span></th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
+        <th style="${thStyle}">响应(s)<span style="color:#1565C0;font-size:10px;margin-left:3px">(占25%)</span></th><th style="${thStyle}">响应达标</th>
+        <th style="${thStyle}">工单达标率%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占25%)</span></th><th style="${thStyle}">工单达标</th>
+        <th style="${thStyle}">3分回复%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占10%)</span></th><th style="${thStyle}">3分达标</th>
       </tr></thead><tbody>`;
     for (const s of (d.shops||[])) {
       const nsStd=kpiGetNonSatStd(s.shopName);
