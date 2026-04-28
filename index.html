@@ -3032,7 +3032,7 @@ let _pfRole      = 'reception';
 // ── 绩效系数计算 ──
 function calcPerfCoef(scores, role, attend, should) {
   const weights = PERF_WEIGHTS[role] || [];
-  const nonSatRate = parseFloat(scores.nonSat || scores.teamNonSat || 100);
+  const nonSatRate = parseFloat(scores.nonSat ?? scores.teamNonSat ?? 100);
   // 非满≤60%整体清零
   if ((role === 'reception' || role === 'leader') && nonSatRate <= 60) return 0;
   // 工单：售后处理时长≤60%整体清零
