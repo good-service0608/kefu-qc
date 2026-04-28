@@ -4943,6 +4943,12 @@ async function kpiFetchQCData(month) {
 }
 
 function kpiCalcQCRate(agentName, qcRecords) {
+  const detail=kpiCalcQCDetail(agentName,qcRecords);
+  if (!detail.length) return null;
+  return detail.filter(d=>d.ok).length/detail.length*100;
+}
+
+function kpiCalcQCDetail(agentName, qcRecords) {
   const shopMap={};
   for (const r of qcRecords) {
     if (r.agent!==agentName||!r.shop) continue;
@@ -4950,10 +4956,11 @@ function kpiCalcQCRate(agentName, qcRecords) {
     shopMap[r.shop].total++;
     if (r.pass) shopMap[r.shop].pass++;
   }
-  const shops=Object.values(shopMap);
-  if (!shops.length) return null;
-  const ok=shops.filter(s=>s.total>0&&Math.round(s.pass/s.total*100)>=90);
-  return ok.length/shops.length*100;
+  return Object.entries(shopMap).map(([shop,d])=>({
+    shop, pass:d.pass, total:d.total,
+    rate:d.total?Math.round(d.pass/d.total*100):0,
+    ok:d.total>0&&Math.round(d.pass/d.total*100)>=90
+  }));
 }
 
 function kpiGetLeaderShopData() {
@@ -5026,20 +5033,28 @@ async function kpiCalculate() {
     for (const [agent,shops] of Object.entries(agentShopData)) {
       const entries=Object.entries(shops);
       let nsOk=0,nsT=0,rspOk=0,rspT=0,r3Ok=0,r3T=0;
+      const shopDetail=[];
       for (const [sn,sd] of entries) {
-        if (sd.nonsat!==null) { nsT++; if(sd.nonsat<=kpiGetNonSatStd(sn))nsOk++; }
-        if (sd.resp!==null)   { rspT++; if(sd.resp<=15)rspOk++; }
-        if (sd.reply3m!==null){ r3T++;  if(sd.reply3m>=99)r3Ok++; }
+        const nsSd=kpiGetNonSatStd(sn);
+        const nsPass=sd.nonsat!==null?sd.nonsat<=nsSd:null;
+        const rspPass=sd.resp!==null?sd.resp<=15:null;
+        const r3Pass=sd.reply3m!==null?sd.reply3m>=99:null;
+        if (sd.nonsat!==null) { nsT++; if(nsPass)nsOk++; }
+        if (sd.resp!==null)   { rspT++; if(rspPass)rspOk++; }
+        if (sd.reply3m!==null){ r3T++;  if(r3Pass)r3Ok++; }
+        shopDetail.push({shopName:sn,volume:sd.volume,nonsat:sd.nonsat,nsSd,nsPass,resp:sd.resp,rspPass,reply3m:sd.reply3m,r3Pass});
       }
       const totalVol=Object.values(shops).reduce((s,d)=>s+d.volume,0);
       const nonSatRate=nsT?nsOk/nsT*100:0;
       const volRate=Math.min(totalVol/volThresh*100,100);
-      const qcRate=kpiCalcQCRate(agent,qcRecords)??100;
+      const qcDetail=kpiCalcQCDetail(agent,qcRecords);
+      const qcRate=qcDetail.length?(qcDetail.filter(d=>d.ok).length/qcDetail.length*100):100;
       const respRate=rspT?rspOk/rspT*100:100;
       const reply3mRate=r3T?r3Ok/r3T*100:100;
       const scores={nonSat:+nonSatRate.toFixed(1),qc:+qcRate.toFixed(1),volume:+volRate.toFixed(1),respTime:+respRate.toFixed(1),reply3m:+reply3mRate.toFixed(1)};
       const coef=calcPerfCoef(scores,'reception',should,should);
-      receptionResults.push({name:agent,month,role:'reception',base_salary:base,scores,coef,amount:Math.round(base*coef),shopCount:entries.length,totalVol});
+      receptionResults.push({name:agent,month,role:'reception',base_salary:base,scores,coef,amount:Math.round(base*coef),shopCount:entries.length,totalVol,
+        detail:{type:'reception',shopDetail,qcDetail,totalVol,volThresh,avgVol}});
     }
 
     // ⑥ 计算工单客服KPI
@@ -5049,7 +5064,8 @@ async function kpiCalculate() {
       const solveOk=data.avgSolveH!==null?(data.avgSolveH<=96?100:0):100;
       const scores={procTime:+leaderSD.procRate.toFixed(1),woVolume:+data.volRate.toFixed(1),solveTime:+solveOk.toFixed(1),assist:100};
       const coef=calcPerfCoef(scores,'workorder',should,should);
-      workorderResults.push({name:person,month,role:'workorder',base_salary:base,scores,coef,amount:Math.round(base*coef),avgSolveH:data.avgSolveH});
+      workorderResults.push({name:person,month,role:'workorder',base_salary:base,scores,coef,amount:Math.round(base*coef),avgSolveH:data.avgSolveH,
+        detail:{type:'workorder',create:data.create,finish:data.finish,volRate:data.volRate,avgSolveH:data.avgSolveH,solveOk}});
     }
 
     // ⑦ 计算组长KPI
@@ -5060,7 +5076,8 @@ async function kpiCalculate() {
     if (leaderName) {
       const scores={teamNonSat:+leaderSD.nonSatRate.toFixed(1),respTime:+leaderSD.respRate.toFixed(1),reply3m:+leaderSD.reply3mRate.toFixed(1),procTime:+leaderSD.procRate.toFixed(1),training:+trainRate.toFixed(1)};
       const coef=calcPerfCoef(scores,'leader',should,should);
-      leaderResults.push({name:leaderName,month,role:'leader',base_salary:leaderBase,scores,coef,amount:Math.round(leaderBase*coef)});
+      leaderResults.push({name:leaderName,month,role:'leader',base_salary:leaderBase,scores,coef,amount:Math.round(leaderBase*coef),
+        detail:{type:'leader',shops:leaderSD.shops,trainCnt,trainRate}});
     }
 
     setStatus('✅ 计算完成');
@@ -5071,6 +5088,126 @@ async function kpiCalculate() {
     setStatus('❌ '+e.message);
     console.error(e);
   }
+}
+
+function toggleKpiDetail(idx) {
+  const el=document.getElementById('kpiDRow_'+idx);
+  const arrow=document.getElementById('kpiArrow_'+idx);
+  if (!el) return;
+  const show=el.style.display==='none'||el.style.display==='';
+  el.style.display=show?'table-row':'none';
+  if (arrow) arrow.textContent=show?'▼':'▶';
+}
+
+function kpiDetailHtml(r) {
+  const d=r.detail;
+  if (!d) return '<td colspan="10" style="padding:10px;color:#999;font-size:12px">无明细数据</td>';
+  const ok=(v)=>v?'<span style="color:var(--pass);font-weight:700">✓</span>':'<span style="color:var(--fail);font-weight:700">✗</span>';
+  const na='<span style="color:#bbb">—</span>';
+  let inner='';
+
+  if (d.type==='reception') {
+    // 接待数据明细
+    const thStyle='padding:5px 8px;background:#f0f4ff;font-weight:600;white-space:nowrap;';
+    const tdStyle='padding:5px 8px;text-align:center;';
+    inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">📦 接待数据明细 · 总接待 ${d.totalVol} 条 · 基准 ${Math.round(d.volThresh)} 条 (人均${Math.round(d.avgVol)}×80%)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">
+      <thead><tr>
+        <th style="${thStyle}text-align:left">店铺</th>
+        <th style="${thStyle}">接待量</th>
+        <th style="${thStyle}">非满%</th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
+        <th style="${thStyle}">响应(s)</th><th style="${thStyle}">响应达标</th>
+        <th style="${thStyle}">3分回复%</th><th style="${thStyle}">3分达标</th>
+      </tr></thead><tbody>`;
+    for (const s of d.shopDetail) {
+      inner+=`<tr style="border-bottom:1px solid #f5f5f5">
+        <td style="padding:5px 8px;font-weight:600">${esc(s.shopName)}</td>
+        <td style="${tdStyle}">${s.volume}</td>
+        <td style="${tdStyle};color:${s.nsPass===false?'var(--fail)':''}">${s.nonsat!=null?s.nonsat.toFixed(2)+'%':na}</td>
+        <td style="${tdStyle};color:#888">≤${s.nsSd}%</td>
+        <td style="${tdStyle}">${s.nsPass!=null?ok(s.nsPass):na}</td>
+        <td style="${tdStyle};color:${s.rspPass===false?'var(--fail)':''}">${s.resp!=null?s.resp+'s':na}</td>
+        <td style="${tdStyle}">${s.rspPass!=null?ok(s.rspPass):na}</td>
+        <td style="${tdStyle};color:${s.r3Pass===false?'var(--fail)':''}">${s.reply3m!=null?s.reply3m.toFixed(2)+'%':na}</td>
+        <td style="${tdStyle}">${s.r3Pass!=null?ok(s.r3Pass):na}</td>
+      </tr>`;
+    }
+    inner+='</tbody></table>';
+    // 质检明细
+    if (d.qcDetail&&d.qcDetail.length) {
+      inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">✅ 质检明细</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="${thStyle}text-align:left">店铺</th>
+          <th style="${thStyle}">总条数</th><th style="${thStyle}">合格数</th>
+          <th style="${thStyle}">合格率</th><th style="${thStyle}">达标(≥90%)</th>
+        </tr></thead><tbody>`;
+      for (const q of d.qcDetail) {
+        inner+=`<tr style="border-bottom:1px solid #f5f5f5">
+          <td style="padding:5px 8px;font-weight:600">${esc(q.shop)}</td>
+          <td style="${tdStyle}">${q.total}</td>
+          <td style="${tdStyle}">${q.pass}</td>
+          <td style="${tdStyle};color:${q.ok?'var(--pass)':'var(--fail)'}">${q.rate}%</td>
+          <td style="${tdStyle}">${ok(q.ok)}</td>
+        </tr>`;
+      }
+      inner+='</tbody></table>';
+    } else {
+      inner+='<div style="font-size:12px;color:#999">（本月暂无质检数据）</div>';
+    }
+  } else if (d.type==='workorder') {
+    const tdS='padding:6px 12px;text-align:center;';
+    inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">🗂️ 工单数据明细</div>
+    <table style="border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f0f4ff">
+        <th style="padding:6px 12px;font-weight:600">创建工单数</th>
+        <th style="padding:6px 12px;font-weight:600">完结工单数</th>
+        <th style="padding:6px 12px;font-weight:600">接待量达标率</th>
+        <th style="padding:6px 12px;font-weight:600">平均解决时长</th>
+        <th style="padding:6px 12px;font-weight:600">解决时长达标(≤96h)</th>
+      </tr></thead><tbody>
+      <tr>
+        <td style="${tdS}">${d.create??'—'}</td>
+        <td style="${tdS}">${d.finish??'—'}</td>
+        <td style="${tdS}">${d.volRate!=null?d.volRate.toFixed(1)+'%':'—'}</td>
+        <td style="${tdS};color:${d.avgSolveH!=null&&d.avgSolveH>96?'var(--fail)':''}">${d.avgSolveH!=null?d.avgSolveH.toFixed(1)+'h':'无数据'}</td>
+        <td style="${tdS}">${d.avgSolveH!=null?`<span style="color:${d.solveOk?'var(--pass)':'var(--fail)'};font-weight:700">${d.solveOk?'✓ 达标':'✗ 超时'}</span>`:'—'}</td>
+      </tr></tbody></table>`;
+  } else if (d.type==='leader') {
+    const thStyle='padding:5px 8px;background:#f0f4ff;font-weight:600;white-space:nowrap;';
+    const tdStyle='padding:5px 8px;text-align:center;';
+    const ok2=(v)=>v?'<span style="color:var(--pass);font-weight:700">✓</span>':'<span style="color:var(--fail);font-weight:700">✗</span>';
+    inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">👑 组长店铺明细 · 培训次数：${d.trainCnt} 次（得分：${d.trainRate.toFixed(0)}%）</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="${thStyle}text-align:left">店铺</th>
+        <th style="${thStyle}">非满%</th><th style="${thStyle}">标准</th><th style="${thStyle}">非满达标</th>
+        <th style="${thStyle}">响应(s)</th><th style="${thStyle}">响应达标</th>
+        <th style="${thStyle}">工单达标率%</th><th style="${thStyle}">工单达标</th>
+        <th style="${thStyle}">3分回复%</th><th style="${thStyle}">3分达标</th>
+      </tr></thead><tbody>`;
+    for (const s of (d.shops||[])) {
+      const nsStd=kpiGetNonSatStd(s.shopName);
+      const nsPass=!isNaN(s.ns)?s.ns<=nsStd:null;
+      const rspPass=!isNaN(s.resp)?s.resp<=15:null;
+      const procPass=!isNaN(s.proc)?s.proc>=100:null;
+      const r3Pass=!isNaN(s.r3)?s.r3>=99:null;
+      inner+=`<tr style="border-bottom:1px solid #f5f5f5">
+        <td style="padding:5px 8px;font-weight:600">${esc(s.shopName)}</td>
+        <td style="${tdStyle};color:${nsPass===false?'var(--fail)':''}">${!isNaN(s.ns)?s.ns+'%':na}</td>
+        <td style="${tdStyle};color:#888">≤${nsStd}%</td>
+        <td style="${tdStyle}">${nsPass!=null?ok2(nsPass):na}</td>
+        <td style="${tdStyle};color:${rspPass===false?'var(--fail)':''}">${!isNaN(s.resp)?s.resp+'s':na}</td>
+        <td style="${tdStyle}">${rspPass!=null?ok2(rspPass):na}</td>
+        <td style="${tdStyle};color:${procPass===false?'var(--fail)':''}">${!isNaN(s.proc)?s.proc+'%':na}</td>
+        <td style="${tdStyle}">${procPass!=null?ok2(procPass):na}</td>
+        <td style="${tdStyle};color:${r3Pass===false?'var(--fail)':''}">${!isNaN(s.r3)?s.r3+'%':na}</td>
+        <td style="${tdStyle}">${r3Pass!=null?ok2(r3Pass):na}</td>
+      </tr>`;
+    }
+    inner+='</tbody></table>';
+  }
+  return `<td colspan="10" style="padding:0 0 12px 0;background:#f7f9ff;border-bottom:2px solid #dde3f0"><div style="padding:12px 16px 4px 32px">${inner}</div></td>`;
 }
 
 function kpiShowResults(reception, workorder, leader) {
@@ -5085,6 +5222,7 @@ function kpiShowResults(reception, workorder, leader) {
   </div>
   <div style="margin-bottom:12px;padding:10px 14px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2E7D32">
     ✅ 接待客服 ${reception.length} 人 · 工单客服 ${workorder.length} 人 · 组长 ${leader.length} 人 · 合计 ${all.length} 人
+    <span style="margin-left:12px;color:#666;font-size:12px">💡 点击姓名行可展开店铺明细</span>
   </div>
   <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8f8f8">
@@ -5095,13 +5233,13 @@ function kpiShowResults(reception, workorder, leader) {
     <th style="padding:9px;text-align:center">实发(元)</th><th style="padding:9px;text-align:center">状态</th>
   </tr></thead><tbody>`;
 
-  for (const r of all) {
+  all.forEach((r,idx)=>{
     const s=r.scores;
     const ns=s.nonSat??s.teamNonSat;
     const cleared=r.coef===0;
     const statusHtml=cleared?'<span style="color:var(--fail);font-weight:700">🚨清零</span>':r.coef>=0.9?'<span style="color:var(--pass)">✅达标</span>':'<span style="color:var(--warn)">⚠️待提升</span>';
-    html+=`<tr style="border-bottom:1px solid #f0f0f0;background:${cleared?'#fff8f8':'white'}">
-      <td style="padding:9px 12px;font-weight:700">${esc(r.name)}</td>
+    html+=`<tr onclick="toggleKpiDetail(${idx})" style="border-bottom:1px solid #f0f0f0;background:${cleared?'#fff8f8':'white'};cursor:pointer" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='${cleared?'#fff8f8':'white'}'">
+      <td style="padding:9px 12px;font-weight:700"><span id="kpiArrow_${idx}" style="font-size:10px;color:#888;margin-right:6px">▶</span>${esc(r.name)}</td>
       <td style="padding:9px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;background:#f0f0f0">${roleLabel[r.role]||r.role}</span></td>
       <td style="padding:9px;text-align:center;color:${ns<=60?'var(--fail)':ns<80?'var(--warn)':'inherit'};font-weight:${ns<=60?700:400}">${ns!=null?ns+'%':'—'}</td>
       <td style="padding:9px;text-align:center">${s.qc!=null?s.qc+'%':'—'}</td>
@@ -5111,8 +5249,9 @@ function kpiShowResults(reception, workorder, leader) {
       <td style="padding:9px;text-align:center;font-weight:700;color:${r.coef>=0.9?'var(--pass)':r.coef>0?'var(--warn)':'var(--fail)'}">${(r.coef*100).toFixed(1)}%</td>
       <td style="padding:9px;text-align:center;font-weight:700;color:var(--primary);font-size:15px">¥${r.amount}</td>
       <td style="padding:9px;text-align:center">${statusHtml}</td>
-    </tr>`;
-  }
+    </tr>
+    <tr id="kpiDRow_${idx}" style="display:none">${kpiDetailHtml(r)}</tr>`;
+  });
   html+='</tbody></table></div>';
 
   let el=document.getElementById('kpiResultPreview');
