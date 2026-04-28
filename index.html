@@ -35,7 +35,7 @@ const ROSTER_MAP = {
   '曾苗欣': ['生活官：吸引'],
   '张佳茹': ['生活官：团团','客服-小佳','客服-吉小佳'],
   '屈李佩': ['生活官：小曦'],
-  '郭洪君': ['生活官：樱樱'],
+  '郭宏君': ['生活官：樱樱'],
   '王全':   ['生活官:图图'],
   '郭毅':   ['客服-小蕾','客服-a2小G','客服-爱小G','客服-熠小G','客服-麦小G','客服-怡小G'],
   '李文婕': ['客服-浅浅','客服-a2小妖','客服-STOKKE小妖','客服-爱小妖','客服-熠小妖','客服-麦小妖','客服-怡小鹤'],
@@ -3041,11 +3041,8 @@ function calcPerfCoef(scores, role, attend, should) {
   let total = 0;
   weights.forEach(w => {
     const rate = parseFloat(scores[w.key] || 0) / 100;
-    let contrib = 0;
-    if (rate <= 0) { contrib = 0; }
-    else if (rate >= 0.8) { contrib = w.weight; }
-    else if (rate > 0.6)  { contrib = w.weight * (rate / 0.8); }
-    else                  { contrib = 0; }
+    // 直接比例：实际达标率 × 权重（例如85.7%非满达标率 → 85.7%×30%=25.71%）
+    let contrib = rate * w.weight;
     // 质检达标率≤60%本项清零
     if (w.key === 'qc' && rate <= 0.6) contrib = 0;
     total += contrib;
@@ -4924,7 +4921,8 @@ async function kpiParseWOFiles(createFile, finishFile) {
   const avgC=mainP.reduce((s,p)=>s+(createCnt[p]||0),0)/n;
   const avgF=mainP.reduce((s,p)=>s+(finishCnt[p]||0),0)/n;
   const bench=(avgC+avgF)*0.8;
-  const result={};
+  const avgTotal=Math.round(avgC+avgF);
+  const result={_meta:{avgTotal, bench:Math.round(bench)}};
   for (const p of mainP) {
     const c=createCnt[p]||0,f=finishCnt[p]||0;
     const times=solveTimes[p]||[];
@@ -5045,7 +5043,7 @@ async function kpiCalculate() {
         shopDetail.push({shopName:sn,volume:sd.volume,nonsat:sd.nonsat,nsSd,nsPass,resp:sd.resp,rspPass,reply3m:sd.reply3m,r3Pass});
       }
       const totalVol=Object.values(shops).reduce((s,d)=>s+d.volume,0);
-      const nonSatRate=nsT?nsOk/nsT*100:0;
+      const nonSatRate=nsT?nsOk/nsT*100:100; // 无非满数据时默认100%（不清零不扣分）
       const volRate=Math.min(totalVol/volThresh*100,100);
       const qcDetail=kpiCalcQCDetail(agent,qcRecords);
       const qcRate=qcDetail.length?(qcDetail.filter(d=>d.ok).length/qcDetail.length*100):100;
@@ -5059,13 +5057,16 @@ async function kpiCalculate() {
 
     // ⑥ 计算工单客服KPI
     const leaderSD=kpiGetLeaderShopData();
+    const woMeta=woData._meta||{avgTotal:0,bench:0};
     const workorderResults=[];
     for (const [person,data] of Object.entries(woData)) {
+      if (person==='_meta') continue;
       const solveOk=data.avgSolveH!==null?(data.avgSolveH<=96?100:0):100;
       const scores={procTime:+leaderSD.procRate.toFixed(1),woVolume:+data.volRate.toFixed(1),solveTime:+solveOk.toFixed(1),assist:100};
       const coef=calcPerfCoef(scores,'workorder',should,should);
       workorderResults.push({name:person,month,role:'workorder',base_salary:base,scores,coef,amount:Math.round(base*coef),avgSolveH:data.avgSolveH,
-        detail:{type:'workorder',create:data.create,finish:data.finish,volRate:data.volRate,avgSolveH:data.avgSolveH,solveOk}});
+        detail:{type:'workorder',create:data.create,finish:data.finish,volRate:data.volRate,avgSolveH:data.avgSolveH,solveOk,procRate:leaderSD.procRate,
+          woTotal:data.create+data.finish, avgTotal:woMeta.avgTotal, bench:woMeta.bench}});
     }
 
     // ⑦ 计算组长KPI
@@ -5156,23 +5157,55 @@ function kpiDetailHtml(r) {
       inner+='<div style="font-size:12px;color:#999">（本月暂无质检数据）</div>';
     }
   } else if (d.type==='workorder') {
-    const tdS='padding:6px 12px;text-align:center;';
-    inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">🗂️ 工单数据明细</div>
-    <table style="border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#f0f4ff">
-        <th style="padding:6px 12px;font-weight:600">创建工单数</th>
-        <th style="padding:6px 12px;font-weight:600">完结工单数</th>
-        <th style="padding:6px 12px;font-weight:600">接待量达标率</th>
-        <th style="padding:6px 12px;font-weight:600">平均解决时长</th>
-        <th style="padding:6px 12px;font-weight:600">解决时长达标(≤96h)</th>
+    const thS='padding:6px 10px;background:#f0f4ff;font-weight:600;font-size:11px;white-space:nowrap;';
+    const tdS='padding:6px 10px;text-align:center;font-size:12px;';
+    const ok3=(v)=>v?'<span style="color:var(--pass);font-weight:700">✓ 达标</span>':'<span style="color:var(--fail);font-weight:700">✗</span>';
+    inner+=`<div style="font-size:12px;font-weight:700;color:#1565C0;margin:0 0 6px">🗂️ 工单数据明细 · 总工单量 ${d.woTotal??'—'} 条 · 基准 ${d.bench??'—'} 条 (人均${d.avgTotal??'—'}×80%)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
+      <thead><tr>
+        <th style="${thS}">指标</th>
+        <th style="${thS}">权重</th>
+        <th style="${thS}">数据/得分</th>
+        <th style="${thS}">标准</th>
+        <th style="${thS}">达标</th>
+        <th style="${thS}">绩效贡献</th>
       </tr></thead><tbody>
+      <tr style="border-bottom:1px solid #f5f5f5">
+        <td style="${tdS};text-align:left;font-weight:600">售后处理时长达成率</td>
+        <td style="${tdS}">50%</td>
+        <td style="${tdS}">${d.procRate!=null?d.procRate.toFixed(1)+'%':'100%'}（团队指标）</td>
+        <td style="${tdS};color:#888">店铺达标率100%</td>
+        <td style="${tdS}">${ok3((d.procRate??100)>=100)}</td>
+        <td style="${tdS};font-weight:700;color:var(--pass)">${((d.procRate??100)/100*50).toFixed(1)}%</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f5f5f5">
+        <td style="${tdS};text-align:left;font-weight:600">工单量达标率</td>
+        <td style="${tdS}">20%</td>
+        <td style="${tdS}">创建${d.create??0} + 完结${d.finish??0} = <b>${(d.create??0)+(d.finish??0)}</b> 条</td>
+        <td style="${tdS};color:#888">≥${d.bench??'—'}条</td>
+        <td style="${tdS}">${d.volRate!=null?ok3(d.volRate>=80):'—'}</td>
+        <td style="${tdS};font-weight:700">${d.volRate!=null?(d.volRate/100*20).toFixed(1)+'%':'—'}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f5f5f5">
+        <td style="${tdS};text-align:left;font-weight:600">平均解决时长</td>
+        <td style="${tdS}">20%</td>
+        <td style="${tdS};color:${d.avgSolveH!=null&&d.avgSolveH>96?'var(--fail)':''}">${d.avgSolveH!=null?d.avgSolveH.toFixed(1)+'h':'无完结记录'}</td>
+        <td style="${tdS};color:#888">≤96h</td>
+        <td style="${tdS}">${d.avgSolveH!=null?ok3(d.solveOk):'<span style="color:#aaa">无数据(视为达标)</span>'}</td>
+        <td style="${tdS};font-weight:700;color:${d.solveOk?'var(--pass)':'var(--fail)'}">${d.solveOk?'20.0%':'0.0%'}</td>
+      </tr>
       <tr>
-        <td style="${tdS}">${d.create??'—'}</td>
-        <td style="${tdS}">${d.finish??'—'}</td>
-        <td style="${tdS}">${d.volRate!=null?d.volRate.toFixed(1)+'%':'—'}</td>
-        <td style="${tdS};color:${d.avgSolveH!=null&&d.avgSolveH>96?'var(--fail)':''}">${d.avgSolveH!=null?d.avgSolveH.toFixed(1)+'h':'无数据'}</td>
-        <td style="${tdS}">${d.avgSolveH!=null?`<span style="color:${d.solveOk?'var(--pass)':'var(--fail)'};font-weight:700">${d.solveOk?'✓ 达标':'✗ 超时'}</span>`:'—'}</td>
-      </tr></tbody></table>`;
+        <td style="${tdS};text-align:left;font-weight:600">其他要求</td>
+        <td style="${tdS}">10%</td>
+        <td style="${tdS}">协助接待 + 群消息≤20min</td>
+        <td style="${tdS};color:#888">按时完成</td>
+        <td style="${tdS}"><span style="color:var(--pass);font-weight:700">✓（默认达标）</span></td>
+        <td style="${tdS};font-weight:700;color:var(--pass)">10.0%</td>
+      </tr></tbody>
+    </table>
+    <div style="padding:6px 10px;background:#e8f5e9;border-radius:6px;font-size:12px">
+      合计绩效系数 = ${((d.procRate??100)/100*50 + (d.volRate??100)/100*20 + (d.solveOk?20:0) + 10).toFixed(1)}%
+    </div>`;
   } else if (d.type==='leader') {
     const thStyle='padding:5px 8px;background:#f0f4ff;font-weight:600;white-space:nowrap;';
     const tdStyle='padding:5px 8px;text-align:center;';
