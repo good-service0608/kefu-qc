@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.0/papaparse.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
 // ============================================================
 // 【第一步配置这里】填入你的 Supabase 项目信息
@@ -1800,7 +1801,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div class="weight-label">售后处理时长达成率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:300px;background:#DA291C">50%</div>
-        <div class="weight-note">100%店铺达成，完成店铺量/服务店铺量；达标率≤60%整体清零</div>
+        <div class="weight-note">每个店铺售后处理时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1814,7 +1815,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div class="weight-label">平均解决时间</div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:120px;background:#FF9800">20%</div>
-        <div class="weight-note">≤72h（总时间÷解决数）</div>
+        <div class="weight-note">≤96h（总时间÷解决数）</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1829,7 +1830,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div class="scheme-card">
     <div class="scheme-card-title">关键规则</div>
     <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理时长达成率≤60%</strong> → 本月整体绩效清零</div></div>
-    <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>平均解决时间目标≤72h</strong>，母婴类允许适当延长，后期持续摸索优化</div></div>
+    <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>平均解决时间目标≤96h</strong>，母婴类允许适当延长，后期持续摸索优化</div></div>
     <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
     <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围或储备组长期间，需组长+主管+总监确认</div></div>
     <div class="rule-item red"><div class="rule-icon">📉</div><div><strong>重大事故-10%</strong>：操作失误导致损失或客诉升级≥3单；连续3个月质检达标率＜70%淘汰</div></div>
@@ -1843,28 +1844,35 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     <div class="weight-row">
       <div class="weight-label">团队非满意度达标率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
-        <div class="weight-bar" style="width:240px;background:#DA291C">40%</div>
-        <div class="weight-note">所有负责店铺达标率汇总，≤60%整体清零</div>
+        <div class="weight-bar" style="width:180px;background:#DA291C">30%</div>
+        <div class="weight-note">所有负责店铺达标率汇总，达标店铺/总服务店铺，≤60%整体清零</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">平均响应时长达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:150px;background:#FF9800">25%</div>
+        <div class="weight-note">≤15s，店铺达标率要求100%</div>
+      </div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">3分钟回复率达标率</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:60px;background:#9C27B0">10%</div>
+        <div class="weight-note">≥99%，店铺达标率要求100%</div>
       </div>
     </div>
     <div class="weight-row">
       <div class="weight-label">售后工单处理时长达成率</div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:150px;background:#1565C0">25%</div>
-        <div class="weight-note">100%店铺达成（服务体验分核心指标）</div>
-      </div>
-    </div>
-    <div class="weight-row">
-      <div class="weight-label">响应时长达标率</div>
-      <div class="weight-bar-wrap">
-        <div class="weight-bar" style="width:120px;background:#FF9800">20%</div>
-        <div class="weight-note">团队整体≤15s（服务体验分核心指标）</div>
+        <div class="weight-note">≥100分，店铺达标率要求100%</div>
       </div>
     </div>
     <div class="weight-row">
       <div class="weight-label">培训计划完成</div>
       <div class="weight-bar-wrap">
-        <div class="weight-bar" style="width:90px;background:#4CAF50">15%</div>
+        <div class="weight-bar" style="width:60px;background:#4CAF50">10%</div>
         <div class="weight-note">培训数量≥10次，≤5次为0分，按系数折算</div>
       </div>
     </div>
@@ -1873,10 +1881,11 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div class="scheme-card">
     <div class="scheme-card-title">服务体验分说明</div>
     <div style="font-size:13px;color:var(--text2);padding:8px 0;line-height:2">
-      服务体验分由两个指标共同构成：<br>
-      <strong style="color:var(--text)">① 响应时长（20%）</strong> — 客服接待侧，直接影响平台体验分<br>
-      <strong style="color:var(--text)">② 售后工单处理时长（25%）</strong> — 工单侧，直接影响平台体验分<br>
-      两项合计占组长绩效 <strong style="color:var(--primary)">45%</strong>，是组长最核心的考核维度。
+      服务体验分由三个指标共同构成：<br>
+      <strong style="color:var(--text)">① 平均响应时长（25%）</strong> — 客服接待侧，直接影响平台体验分<br>
+      <strong style="color:var(--text)">② 3分钟回复率（10%）</strong> — 客服接待侧，店铺达标率100%<br>
+      <strong style="color:var(--text)">③ 售后工单处理时长（25%）</strong> — 工单侧，直接影响平台体验分<br>
+      三项合计占组长绩效 <strong style="color:var(--primary)">60%</strong>，是组长最核心的考核维度。
     </div>
   </div>
 
@@ -2094,6 +2103,89 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div style="margin-top:14px;display:flex;gap:10px">
     <button class="btn-pri" id="pfSubmitBtn" onclick="pfSubmit()">保存留档</button>
     <button class="btn-sec" onclick="pfCloseForm()">取消</button>
+  </div>
+</div>
+
+<!-- KPI 数据上传面板 -->
+<div id="kpiUploadPanel" style="background:white;border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="font-size:15px;font-weight:700">📤 月度绩效数据上传</div>
+    <button onclick="toggleKpiPanel()" id="kpiPanelToggle" style="border:none;background:none;cursor:pointer;color:var(--text2);font-size:12px;padding:4px 10px;border-radius:6px;background:#f5f5f5">收起 ▲</button>
+  </div>
+  <div id="kpiUploadBody">
+    <!-- 基础配置 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">📅 考核月份</label>
+        <input type="month" id="kpiMonth" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">🎯 绩效基数（元）</label>
+        <input type="number" id="kpiBase" value="1000" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">📆 应出勤天数</label>
+        <input type="number" id="kpiShouldDays" value="22" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">👑 组长姓名</label>
+        <input type="text" id="kpiLeaderName" placeholder="如：张晓猪" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
+      </div>
+    </div>
+
+    <!-- 文件上传区 -->
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="border:2px dashed #ddd;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">🏪 接待数据（多店铺）</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">每个店铺一个xlsx，可多选</div>
+        <input type="file" id="kpiStoreFiles" accept=".xlsx" multiple style="display:none" onchange="kpiShowFiles('store')">
+        <button onclick="document.getElementById('kpiStoreFiles').click()" style="padding:6px 14px;border:1px solid var(--primary);border-radius:8px;background:white;color:var(--primary);font-size:12px;cursor:pointer">选择文件</button>
+        <div id="kpiStoreFileNames" style="font-size:11px;color:#555;margin-top:8px;text-align:left;max-height:80px;overflow-y:auto"></div>
+      </div>
+      <div style="border:2px dashed #ddd;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">📋 创建工单量</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">创建工单量.xlsx</div>
+        <input type="file" id="kpiCreateWO" accept=".xlsx" style="display:none" onchange="kpiShowFiles('create')">
+        <button onclick="document.getElementById('kpiCreateWO').click()" style="padding:6px 14px;border:1px solid var(--primary);border-radius:8px;background:white;color:var(--primary);font-size:12px;cursor:pointer">选择文件</button>
+        <div id="kpiCreateWOName" style="font-size:11px;color:#555;margin-top:8px"></div>
+      </div>
+      <div style="border:2px dashed #ddd;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">✅ 完结工单量</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">完结工单量.xlsx</div>
+        <input type="file" id="kpiFinishWO" accept=".xlsx" style="display:none" onchange="kpiShowFiles('finish')">
+        <button onclick="document.getElementById('kpiFinishWO').click()" style="padding:6px 14px;border:1px solid var(--primary);border-radius:8px;background:white;color:var(--primary);font-size:12px;cursor:pointer">选择文件</button>
+        <div id="kpiFinishWOName" style="font-size:11px;color:#555;margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- 组长店铺数据 -->
+    <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">👑 组长各店铺汇总数据 <span style="font-size:11px;font-weight:400;color:var(--text2)">（已预填截图数据，可修改）</span></div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#f8f8f8">
+            <th style="padding:7px 10px;text-align:left;font-weight:600">店铺</th>
+            <th style="padding:7px;text-align:center;font-weight:600">非满率(%)</th>
+            <th style="padding:7px;text-align:center;font-weight:600">响应时长(s)</th>
+            <th style="padding:7px;text-align:center;font-weight:600">售后处理时长(分)</th>
+            <th style="padding:7px;text-align:center;font-weight:600">3分钟回复率(%)</th>
+          </tr></thead>
+          <tbody id="leaderShopBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
+        <label style="font-size:12px;font-weight:600">本月培训次数：</label>
+        <input type="number" id="leaderTrainingCnt" value="8" min="0" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:80px">
+        <span style="font-size:11px;color:var(--text2)">≥10次满分 · ≤5次为0分 · 按系数折算</span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center">
+      <button onclick="kpiCalculate()" style="padding:10px 28px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px">
+        ⚡ 自动计算绩效
+      </button>
+      <span id="kpiStatus" style="font-size:13px;color:var(--text2)"></span>
+    </div>
   </div>
 </div>
 
@@ -2782,7 +2874,7 @@ function switchTab(tab) {
   if (targetNavTab) targetNavTab.classList.add('active');
   const page = document.getElementById('page-' + tab);
   if (page) page.classList.add('active');
-  if (tab === 'perf') initPerfPage();
+  if (tab === 'perf') { initPerfPage(); kpiInitPage(); }
   if (tab === 'users') loadUsersPage();
   if (tab === 'roster') loadRosterPage();
 }
@@ -2881,7 +2973,10 @@ async function loadSchemeConfig() {
     for (const row of data) {
       const id = row.key.replace('scheme_block_', '');
       const el = document.getElementById('scheme-' + id);
-      if (el && row.value) el.innerHTML = DOMPurify.sanitize(row.value);
+      if (el && row.value) el.innerHTML = DOMPurify.sanitize(row.value, {
+          ADD_ATTR: ['style','onclick'],
+          FORCE_BODY: true
+        });
     }
   } catch(e) {
     console.warn('[loadSchemeConfig]', e.message);
@@ -2901,16 +2996,17 @@ const PERF_WEIGHTS = {
     { key:'reply3m',  label:'3分钟回复率达标率',weight:0.10, note:'≥99%' },
   ],
   workorder: [
-    { key:'procTime',  label:'售后处理时长达成率', weight:0.50, note:'100%店铺达成，达标率≤60%整体清零' },
-    { key:'woVolume',  label:'工单量达标率',       weight:0.20, note:'创建量+完结量≥组内平均80%' },
-    { key:'solveTime', label:'平均解决时间达标率',  weight:0.20, note:'≤72h' },
-    { key:'assist',    label:'其他要求',            weight:0.10, note:'协助接待+群消息≤20min' },
+    { key:'procTime',  label:'售后处理时长达成率', weight:0.50, note:'每个店铺售后处理时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零' },
+    { key:'woVolume',  label:'工单量达标率',       weight:0.20, note:'工单创建量+完结量≥组内平均值80%，达标店铺数/总服务店铺数' },
+    { key:'solveTime', label:'平均解决时间达标率',  weight:0.20, note:'≤96h（总时间÷解决数）' },
+    { key:'assist',    label:'其他要求',            weight:0.10, note:'协助接待处理事项 + 群消息回复≤20min' },
   ],
   leader: [
-    { key:'teamNonSat',label:'团队非满意度达标率', weight:0.40, note:'按品牌标准，达标率≤60%整体清零' },
-    { key:'respTime',  label:'响应时长达标率',     weight:0.20, note:'≤15s' },
-    { key:'procTime',  label:'售后工单处理时长达成率',weight:0.25, note:'100%店铺达成' },
-    { key:'training',  label:'培训计划完成',       weight:0.15, note:'培训数量≥10，≤5个为0' },
+    { key:'teamNonSat',label:'团队非满意度达标率',    weight:0.30, note:'所有负责店铺达标率汇总，达标店铺/总服务店铺，≤60%整体清零' },
+    { key:'respTime',  label:'平均响应时长达标率',    weight:0.25, note:'≤15s，店铺达标率要求100%' },
+    { key:'reply3m',   label:'3分钟回复率达标率',     weight:0.10, note:'≥99%，店铺达标率要求100%' },
+    { key:'procTime',  label:'售后工单处理时长达成率', weight:0.25, note:'≥100分，店铺达标率要求100%' },
+    { key:'training',  label:'培训计划完成',          weight:0.10, note:'培训数量≥10次，≤5次为0分，按系数折算' },
   ]
 };
 
@@ -2920,7 +3016,7 @@ const ROLE_LABELS = { reception:'接待客服', workorder:'工单客服', leader
 const PF_FIELD_KEYS = {
   reception: ['nonSat','qc','volume','respTime','reply3m'],
   workorder: ['procTime','woVolume','solveTime','assist'],
-  leader:    ['teamNonSat','respTime','procTime','training'],
+  leader:    ['teamNonSat','respTime','reply3m','procTime','training'],
 };
 
 const AVATAR_COLORS = ['#C2185B','#1565C0','#2E7D32','#E65100','#6A1B9A','#00796B','#AD1457','#283593'];
@@ -4666,6 +4762,413 @@ async function deleteRosterItem(id, name) {
 window.addEventListener('DOMContentLoaded', () => {
   checkExistingSession();
 });
+
+// ============================================================
+// KPI 数据上传 & 自动计算
+// ============================================================
+const KPI_NONSAT_STD = {
+  '舒肤佳':10,'吉列':10,'维纳斯':10,'爱他美AP':8,'爱他美至熠':8,
+  '沙宣':20,'麦当劳':20,'stokke':20,'怡宝':20,'a2':20,
+};
+const KPI_LEADER_SHOPS = ['舒肤佳','吉列','维纳斯','沙宣','爱他美AP','爱他美至熠','麦当劳','stokke','怡宝','a2'];
+const KPI_LEADER_DEFAULTS = {
+  '舒肤佳':  {ns:10.29,resp:13,proc:100,r3:99.98},
+  '吉列':    {ns:15.46,resp:14,proc:100,r3:99.80},
+  '维纳斯':  {ns:12.64,resp:14,proc:100,r3:100},
+  '沙宣':    {ns:22.94,resp:14,proc:100,r3:99.88},
+  '爱他美AP':{ns:8.80, resp:12,proc:100,r3:99.93},
+  '爱他美至熠':{ns:6.25,resp:12,proc:100,r3:100},
+  '麦当劳':  {ns:21.94,resp:12,proc:100,r3:99.91},
+  'stokke':  {ns:7.46, resp:12,proc:100,r3:99.61},
+  '怡宝':    {ns:13.97,resp:11,proc:100,r3:99.71},
+  'a2':      {ns:7.85, resp:12,proc:100,r3:99.76},
+};
+
+function toggleKpiPanel() {
+  const body = document.getElementById('kpiUploadBody');
+  const btn  = document.getElementById('kpiPanelToggle');
+  if (body.style.display === 'none') {
+    body.style.display = 'block'; btn.textContent = '收起 ▲';
+  } else {
+    body.style.display = 'none'; btn.textContent = '展开 ▼';
+  }
+}
+
+function kpiInitLeaderTable() {
+  const tb = document.getElementById('leaderShopBody');
+  if (!tb) return;
+  tb.innerHTML = KPI_LEADER_SHOPS.map(s => {
+    const d = KPI_LEADER_DEFAULTS[s] || {};
+    const inp = (v,step,w) => `<input type="number" step="${step}" value="${v??''}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-align:center">`;
+    return `<tr style="border-bottom:1px solid #f5f5f5">
+      <td style="padding:6px 10px;font-weight:600">${s}</td>
+      <td style="padding:4px;text-align:center">${inp(d.ns,'0.01',75)}</td>
+      <td style="padding:4px;text-align:center">${inp(d.resp,'1',55)}</td>
+      <td style="padding:4px;text-align:center">${inp(d.proc,'1',55)}</td>
+      <td style="padding:4px;text-align:center">${inp(d.r3,'0.01',75)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function kpiShowFiles(type) {
+  if (type==='store') {
+    const files = document.getElementById('kpiStoreFiles').files;
+    document.getElementById('kpiStoreFileNames').innerHTML = [...files].map(f=>`<div>📄 ${f.name}</div>`).join('');
+  } else if (type==='create') {
+    const f = document.getElementById('kpiCreateWO').files[0];
+    document.getElementById('kpiCreateWOName').textContent = f ? `📄 ${f.name}` : '';
+  } else {
+    const f = document.getElementById('kpiFinishWO').files[0];
+    document.getElementById('kpiFinishWOName').textContent = f ? `📄 ${f.name}` : '';
+  }
+}
+
+function kpiGetNonSatStd(shopName) {
+  for (const [k,v] of Object.entries(KPI_NONSAT_STD)) {
+    if (shopName.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  return 20;
+}
+
+function kpiBuildNickMap() {
+  const map = {};
+  for (const [agent, nicks] of Object.entries(ROSTER_MAP||{})) {
+    for (const nick of nicks) map[nick.trim()] = agent;
+  }
+  return map;
+}
+
+async function kpiReadXlsx(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        resolve(XLSX.utils.sheet_to_json(ws, {header:1, defval:''}));
+      } catch(err) { reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function kpiShopFromFile(filename) {
+  const n = filename.replace('.xlsx','').replace('.XLSX','');
+  for (const shop of KPI_LEADER_SHOPS) {
+    if (n.toLowerCase().includes(shop.toLowerCase())) return shop;
+  }
+  return n;
+}
+
+async function kpiParseStoreFile(file) {
+  const shopName = kpiShopFromFile(file.name);
+  const rows = await kpiReadXlsx(file);
+  if (rows.length < 2) return {shopName, agents:[]};
+  const headers = rows[0].map(h=>String(h).trim());
+  const ci = name => headers.findIndex(h=>h.includes(name));
+  const iNick   = ci('客服昵称');
+  const iVol    = ci('接待会话量');
+  const iNonSat = ci('不满意率')>=0 ? ci('不满意率') : ci('工作时间不满意率');
+  const iResp   = ci('平响时长')>=0 ? ci('平响时长') : ci('工作时间平响时长');
+  const iR3     = ci('3分钟回复率');
+  const nickMap = kpiBuildNickMap();
+  const agents  = [];
+  const parsePct = v => { const s=String(v).replace('%','').trim(); const n=parseFloat(s); return isNaN(n)?null:n; };
+  const parseSec = v => { const s=String(v).replace('秒','').trim(); const n=parseFloat(s); return isNaN(n)?null:n; };
+  for (let i=3; i<rows.length; i++) {
+    const row = rows[i];
+    const nick = String(row[iNick]||'').trim();
+    if (!nick || nick==='-' || nick.includes('汇总') || nick.includes('平均')) continue;
+    const agent = nickMap[nick];
+    if (!agent) continue;
+    agents.push({
+      agent, nick,
+      volume:  parseInt(row[iVol])||0,
+      nonsat:  iNonSat>=0 ? parsePct(row[iNonSat]) : null,
+      resp:    iResp>=0   ? parseSec(row[iResp])   : null,
+      reply3m: iR3>=0     ? parsePct(row[iR3])     : null,
+    });
+  }
+  return {shopName, agents};
+}
+
+async function kpiParseWOFiles(createFile, finishFile) {
+  const [cRows, fRows] = await Promise.all([kpiReadXlsx(createFile), kpiReadXlsx(finishFile)]);
+  const createCnt={}, finishCnt={}, solveTimes={};
+  for (let i=1;i<cRows.length;i++) {
+    const p = String(cRows[i][3]||'').trim();
+    if (p) createCnt[p]=(createCnt[p]||0)+1;
+  }
+  for (let i=1;i<fRows.length;i++) {
+    const row=fRows[i];
+    const p=String(row[5]||'').trim();
+    const cs=String(row[3]||'').trim();
+    const fs=String(row[4]||'').trim();
+    if (!p) continue;
+    finishCnt[p]=(finishCnt[p]||0)+1;
+    if (cs&&fs) {
+      try {
+        const h=(new Date(fs.replace(' ','T'))-new Date(cs.replace(' ','T')))/3600000;
+        if (h>0&&h<9999) { if(!solveTimes[p])solveTimes[p]=[]; solveTimes[p].push(h); }
+      } catch(e) {}
+    }
+  }
+  const allP = new Set([...Object.keys(createCnt),...Object.keys(finishCnt)]);
+  const mainP = [...allP].filter(p=>(createCnt[p]||0)+(finishCnt[p]||0)>10);
+  const n=mainP.length||1;
+  const avgC=mainP.reduce((s,p)=>s+(createCnt[p]||0),0)/n;
+  const avgF=mainP.reduce((s,p)=>s+(finishCnt[p]||0),0)/n;
+  const bench=(avgC+avgF)*0.8;
+  const result={};
+  for (const p of mainP) {
+    const c=createCnt[p]||0,f=finishCnt[p]||0;
+    const times=solveTimes[p]||[];
+    result[p]={
+      create:c, finish:f,
+      volRate:Math.min((c+f)/bench*100,100),
+      avgSolveH:times.length?times.reduce((a,b)=>a+b,0)/times.length:null,
+    };
+  }
+  return result;
+}
+
+async function kpiFetchQCData(month) {
+  const {data} = await _supa.from('qc_records').select('agent,shop,pass').eq('month',month);
+  return data||[];
+}
+
+function kpiCalcQCRate(agentName, qcRecords) {
+  const shopMap={};
+  for (const r of qcRecords) {
+    if (r.agent!==agentName||!r.shop) continue;
+    if (!shopMap[r.shop]) shopMap[r.shop]={pass:0,total:0};
+    shopMap[r.shop].total++;
+    if (r.pass) shopMap[r.shop].pass++;
+  }
+  const shops=Object.values(shopMap);
+  if (!shops.length) return null;
+  const ok=shops.filter(s=>s.total>0&&Math.round(s.pass/s.total*100)>=90);
+  return ok.length/shops.length*100;
+}
+
+function kpiGetLeaderShopData() {
+  const rows=document.querySelectorAll('#leaderShopBody tr');
+  let nsOk=0,nsT=0,rspOk=0,rspT=0,r3Ok=0,r3T=0,procOk=0,procT=0;
+  const shops=[];
+  for (const row of rows) {
+    const tdText=row.querySelector('td:first-child')?.textContent.trim();
+    if (!tdText) continue;
+    const inputs=row.querySelectorAll('input');
+    const ns=parseFloat(inputs[0]?.value),resp=parseFloat(inputs[1]?.value);
+    const proc=parseFloat(inputs[2]?.value),r3=parseFloat(inputs[3]?.value);
+    if (!isNaN(ns))   { nsT++;   if(ns<=kpiGetNonSatStd(tdText))nsOk++;   }
+    if (!isNaN(resp)) { rspT++;  if(resp<=15)rspOk++;  }
+    if (!isNaN(r3))   { r3T++;   if(r3>=99)r3Ok++;   }
+    if (!isNaN(proc)) { procT++; if(proc>=100)procOk++; }
+    shops.push({shopName:tdText,ns,resp,proc,r3});
+  }
+  return {
+    shops,
+    nonSatRate: nsT?nsOk/nsT*100:0,
+    respRate:   rspT?rspOk/rspT*100:0,
+    reply3mRate:r3T?r3Ok/r3T*100:0,
+    procRate:   procT?procOk/procT*100:0,
+  };
+}
+
+async function kpiCalculate() {
+  const month=document.getElementById('kpiMonth').value;
+  const base=parseFloat(document.getElementById('kpiBase').value)||1000;
+  const should=parseInt(document.getElementById('kpiShouldDays').value)||22;
+  if (!month) { pfToast('请选择考核月份','error'); return; }
+  const storeFiles=document.getElementById('kpiStoreFiles').files;
+  if (!storeFiles.length) { pfToast('请上传接待数据文件','error'); return; }
+  const status=document.getElementById('kpiStatus');
+  const setStatus=t=>{ status.textContent=t; };
+
+  try {
+    // ① 解析接待数据
+    setStatus('⏳ 解析接待数据…');
+    const agentShopData={};
+    for (const file of storeFiles) {
+      const {shopName, agents}=await kpiParseStoreFile(file);
+      for (const a of agents) {
+        if (!agentShopData[a.agent]) agentShopData[a.agent]={};
+        agentShopData[a.agent][shopName]={volume:a.volume,nonsat:a.nonsat,resp:a.resp,reply3m:a.reply3m};
+      }
+    }
+
+    // ② 解析工单数据
+    setStatus('⏳ 解析工单数据…');
+    const createFile=document.getElementById('kpiCreateWO').files[0];
+    const finishFile=document.getElementById('kpiFinishWO').files[0];
+    let woData={};
+    if (createFile&&finishFile) woData=await kpiParseWOFiles(createFile,finishFile);
+
+    // ③ 质检数据
+    setStatus('⏳ 读取质检数据…');
+    const qcRecords=await kpiFetchQCData(month);
+
+    // ④ 接待量基准
+    const allVols=Object.values(agentShopData).map(s=>Object.values(s).reduce((a,d)=>a+d.volume,0));
+    const avgVol=allVols.reduce((a,b)=>a+b,0)/(allVols.length||1);
+    const volThresh=avgVol*0.8;
+
+    // ⑤ 计算接待客服KPI
+    setStatus('⏳ 计算绩效…');
+    const receptionResults=[];
+    for (const [agent,shops] of Object.entries(agentShopData)) {
+      const entries=Object.entries(shops);
+      let nsOk=0,nsT=0,rspOk=0,rspT=0,r3Ok=0,r3T=0;
+      for (const [sn,sd] of entries) {
+        if (sd.nonsat!==null) { nsT++; if(sd.nonsat<=kpiGetNonSatStd(sn))nsOk++; }
+        if (sd.resp!==null)   { rspT++; if(sd.resp<=15)rspOk++; }
+        if (sd.reply3m!==null){ r3T++;  if(sd.reply3m>=99)r3Ok++; }
+      }
+      const totalVol=Object.values(shops).reduce((s,d)=>s+d.volume,0);
+      const nonSatRate=nsT?nsOk/nsT*100:0;
+      const volRate=Math.min(totalVol/volThresh*100,100);
+      const qcRate=kpiCalcQCRate(agent,qcRecords)??100;
+      const respRate=rspT?rspOk/rspT*100:100;
+      const reply3mRate=r3T?r3Ok/r3T*100:100;
+      const scores={nonSat:+nonSatRate.toFixed(1),qc:+qcRate.toFixed(1),volume:+volRate.toFixed(1),respTime:+respRate.toFixed(1),reply3m:+reply3mRate.toFixed(1)};
+      const coef=calcPerfCoef(scores,'reception',should,should);
+      receptionResults.push({name:agent,month,role:'reception',base_salary:base,scores,coef,amount:Math.round(base*coef),shopCount:entries.length,totalVol});
+    }
+
+    // ⑥ 计算工单客服KPI
+    const leaderSD=kpiGetLeaderShopData();
+    const workorderResults=[];
+    for (const [person,data] of Object.entries(woData)) {
+      const solveOk=data.avgSolveH!==null?(data.avgSolveH<=96?100:0):100;
+      const scores={procTime:+leaderSD.procRate.toFixed(1),woVolume:+data.volRate.toFixed(1),solveTime:+solveOk.toFixed(1),assist:100};
+      const coef=calcPerfCoef(scores,'workorder',should,should);
+      workorderResults.push({name:person,month,role:'workorder',base_salary:base,scores,coef,amount:Math.round(base*coef),avgSolveH:data.avgSolveH});
+    }
+
+    // ⑦ 计算组长KPI
+    const leaderResults=[];
+    const leaderName=document.getElementById('kpiLeaderName').value.trim();
+    const trainCnt=parseInt(document.getElementById('leaderTrainingCnt').value)||0;
+    const trainRate=trainCnt<=5?0:(trainCnt>=10?100:trainCnt/10*100);
+    if (leaderName) {
+      const scores={teamNonSat:+leaderSD.nonSatRate.toFixed(1),respTime:+leaderSD.respRate.toFixed(1),reply3m:+leaderSD.reply3mRate.toFixed(1),procTime:+leaderSD.procRate.toFixed(1),training:+trainRate.toFixed(1)};
+      const coef=calcPerfCoef(scores,'leader',should,should);
+      leaderResults.push({name:leaderName,month,role:'leader',base_salary:base,scores,coef,amount:Math.round(base*coef)});
+    }
+
+    setStatus('✅ 计算完成');
+    window._kpiPendingResults={receptionResults,workorderResults,leaderResults};
+    kpiShowResults(receptionResults,workorderResults,leaderResults);
+
+  } catch(e) {
+    setStatus('❌ '+e.message);
+    console.error(e);
+  }
+}
+
+function kpiShowResults(reception, workorder, leader) {
+  const all=[...reception,...workorder,...leader];
+  const roleLabel={reception:'接待',workorder:'工单',leader:'组长'};
+  let html=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:15px;font-weight:700">📊 绩效计算结果预览</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="kpiSaveAll()" style="padding:8px 20px;background:#2E7D32;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💾 保存全部到系统</button>
+      <button onclick="kpiExportCSV()" style="padding:8px 16px;background:#1565C0;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px">📥 导出CSV</button>
+    </div>
+  </div>
+  <div style="margin-bottom:12px;padding:10px 14px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2E7D32">
+    ✅ 接待客服 ${reception.length} 人 · 工单客服 ${workorder.length} 人 · 组长 ${leader.length} 人 · 合计 ${all.length} 人
+  </div>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+  <thead><tr style="background:#f8f8f8">
+    <th style="padding:9px 12px;text-align:left">姓名</th><th style="padding:9px;text-align:center">岗位</th>
+    <th style="padding:9px;text-align:center">非满达标率</th><th style="padding:9px;text-align:center">质检达标率</th>
+    <th style="padding:9px;text-align:center">接待/工单量</th><th style="padding:9px;text-align:center">响应时长</th>
+    <th style="padding:9px;text-align:center">3分钟回复</th><th style="padding:9px;text-align:center">绩效系数</th>
+    <th style="padding:9px;text-align:center">实发(元)</th><th style="padding:9px;text-align:center">状态</th>
+  </tr></thead><tbody>`;
+
+  for (const r of all) {
+    const s=r.scores;
+    const ns=s.nonSat??s.teamNonSat;
+    const cleared=r.coef===0;
+    const statusHtml=cleared?'<span style="color:var(--fail);font-weight:700">🚨清零</span>':r.coef>=0.9?'<span style="color:var(--pass)">✅达标</span>':'<span style="color:var(--warn)">⚠️待提升</span>';
+    html+=`<tr style="border-bottom:1px solid #f0f0f0;background:${cleared?'#fff8f8':'white'}">
+      <td style="padding:9px 12px;font-weight:700">${esc(r.name)}</td>
+      <td style="padding:9px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;background:#f0f0f0">${roleLabel[r.role]||r.role}</span></td>
+      <td style="padding:9px;text-align:center;color:${ns<=60?'var(--fail)':ns<80?'var(--warn)':'inherit'};font-weight:${ns<=60?700:400}">${ns!=null?ns+'%':'—'}</td>
+      <td style="padding:9px;text-align:center">${s.qc!=null?s.qc+'%':'—'}</td>
+      <td style="padding:9px;text-align:center">${s.volume!=null?s.volume+'%':s.woVolume!=null?s.woVolume+'%':'—'}</td>
+      <td style="padding:9px;text-align:center">${s.respTime!=null?s.respTime+'%':'—'}</td>
+      <td style="padding:9px;text-align:center">${s.reply3m!=null?s.reply3m+'%':'—'}</td>
+      <td style="padding:9px;text-align:center;font-weight:700;color:${r.coef>=0.9?'var(--pass)':r.coef>0?'var(--warn)':'var(--fail)'}">${(r.coef*100).toFixed(1)}%</td>
+      <td style="padding:9px;text-align:center;font-weight:700;color:var(--primary);font-size:15px">¥${r.amount}</td>
+      <td style="padding:9px;text-align:center">${statusHtml}</td>
+    </tr>`;
+  }
+  html+='</tbody></table></div>';
+
+  let el=document.getElementById('kpiResultPreview');
+  if (!el) {
+    el=document.createElement('div');
+    el.id='kpiResultPreview';
+    el.style.cssText='background:white;border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)';
+    document.getElementById('kpiUploadPanel').insertAdjacentElement('afterend',el);
+  }
+  el.innerHTML=html;
+  el.scrollIntoView({behavior:'smooth'});
+}
+
+async function kpiSaveAll() {
+  const res=window._kpiPendingResults;
+  if (!res) { pfToast('没有待保存数据','error'); return; }
+  const all=[...res.receptionResults,...res.workorderResults,...res.leaderResults];
+  if (!all.length) { pfToast('没有可保存的记录','error'); return; }
+  const month=all[0].month;
+  // 先删除同月已有记录（避免重复）
+  await _supa.from('perf_records').delete().eq('month',month);
+  // 批量插入
+  const payloads=all.map(r=>({
+    name:r.name, month:r.month, role:r.role,
+    group_name:'', base_salary:r.base_salary,
+    scores:r.scores, coef:r.coef
+  }));
+  const {error}=await _supa.from('perf_records').insert(payloads);
+  if (error) { pfToast('❌ 保存失败：'+error.message,'error'); console.error(error); return; }
+  pfToast(`✅ 已保存 ${all.length} 条绩效记录`);
+  pfLoading(true);
+  _perfRecords=await dbLoad();
+  pfLoading(false);
+  pfRenderAll();
+}
+
+function kpiExportCSV() {
+  const res=window._kpiPendingResults;
+  if (!res) { pfToast('没有数据','error'); return; }
+  const all=[...res.receptionResults,...res.workorderResults,...res.leaderResults];
+  const rows=[['姓名','岗位','月份','非满达标率','质检达标率','接待/工单量达标率','响应时长达标率','3分钟回复率达标率','绩效系数','绩效基数','实发金额']];
+  const rLabel={reception:'接待客服',workorder:'工单客服',leader:'客服组长'};
+  for (const r of all) {
+    const s=r.scores;
+    rows.push([r.name,rLabel[r.role]||r.role,r.month,
+      s.nonSat??s.teamNonSat??'',s.qc??'',s.volume??s.woVolume??'',
+      s.respTime??'',s.reply3m??'',(r.coef*100).toFixed(1),r.base_salary,r.amount]);
+  }
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+  a.download=`绩效计算_${document.getElementById('kpiMonth').value}.csv`;
+  a.click();
+}
+
+function kpiInitPage() {
+  // 设置默认月份为当前月
+  const m=document.getElementById('kpiMonth');
+  if (m&&!m.value) m.value=new Date().toISOString().slice(0,7);
+  kpiInitLeaderTable();
+}
 
 </script>
 </body>
