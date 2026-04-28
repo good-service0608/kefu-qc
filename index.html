@@ -4883,9 +4883,11 @@ async function kpiParseStoreFile(file) {
     if (!nick || nick==='-' || nick.includes('汇总') || nick.includes('平均')) continue;
     const agent = nickMap[nick];
     if (!agent) continue;
+    const volume = parseInt(row[iVol])||0;
+    if (volume === 0) continue; // 接待量为0 = 本月未实际接待该店铺，跳过
     agents.push({
       agent, nick,
-      volume:  parseInt(row[iVol])||0,
+      volume,
       nonsat:  iNonSat>=0 ? parsePct(row[iNonSat]) : null,
       resp:    iResp>=0   ? parseSec(row[iResp])   : null,
       reply3m: iR3>=0     ? parsePct(row[iR3])     : null,
