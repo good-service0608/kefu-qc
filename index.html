@@ -18,8 +18,8 @@
 const SUPABASE_URL = 'https://zkbzkyywdeswufpobtuo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_Ei7Eo2EPBN-xUcJ3shBEHQ_6X2l8DD3'; // 用于 Supabase DB
 const SUPABASE_JWT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYnpreXl3ZGVzd3VmcG9idHVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MDY5ODUsImV4cCI6MjA5MTk4Mjk4NX0._y7IWzffpmkz2bMuc09PjEPtWxey_giJQaHZqra-HSY'; // 用于 Edge Function 调用
-// Claude API Key（在 console.anthropic.com 获取，填入后才能使用 AI 解析功能）
-const CLAUDE_API_KEY = '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';
+// Claude 密钥不得放在网页中；图片识别由 Supabase Edge Function 安全代理。
+const CLAUDE_API_KEY = '';
 
 const _supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -35,7 +35,7 @@ const ROSTER_MAP = {
   '曾苗欣': ['生活官：吸引'],
   '张佳茹': ['生活官：团团','客服-小佳','客服-吉小佳'],
   '屈李佩': ['生活官：小曦'],
-  '郭宏君': ['生活官：樱樱'],
+  '郭洪君': ['生活官：樱樱'],
   '王全':   ['生活官:图图'],
   '郭毅':   ['客服-小蕾','客服-a2小G','客服-爱小G','客服-熠小G','客服-麦小G','客服-怡小G'],
   '李文婕': ['客服-浅浅','客服-a2小妖','客服-STOKKE小妖','客服-爱小妖','客服-熠小妖','客服-麦小妖','客服-怡小鹤'],
@@ -52,6 +52,25 @@ for (const [name, nicks] of Object.entries(ROSTER_MAP)) {
 }
 // 名册中所有规范真实姓名
 const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
+
+// ── 从数据库刷新质检侧名册（登录后调用）──────────────────────
+async function refreshQcRosterFromDB() {
+  try {
+    const { data } = await _supa.from('agent_roster').select('real_name,nickname');
+    for (const row of (data || [])) {
+      const name = (row.real_name || '').trim();
+      const nick = (row.nickname || '').trim();
+      if (!name || !nick) continue;
+      // 加入 ROSTER_AGENTS
+      ROSTER_AGENTS.add(name);
+      // 加入 _rosterNickSet
+      if (!_rosterNickSet[name]) _rosterNickSet[name] = new Set();
+      _rosterNickSet[name].add(nick);
+    }
+  } catch(e) {
+    console.warn('[质检名册] 数据库加载失败，仅使用内置数据', e);
+  }
+}
 </script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -558,17 +577,53 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 </div>
 
 <!-- ===== 店铺流程编辑弹窗 ===== -->
+<!-- ===== 昵称待核对确认弹窗 ===== -->
+<div id="nickConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:28px 32px;width:420px;max-width:92vw;box-shadow:0 8px 40px rgba(0,0,0,.2)">
+    <div style="font-size:18px;font-weight:700;margin-bottom:6px">⚠️ 昵称待核对</div>
+    <div id="nickConfirmDesc" style="font-size:13px;color:#555;margin-bottom:20px;line-height:1.7"></div>
+
+    <!-- 确认归属正确 -->
+    <div style="background:#F1F8E9;border-radius:10px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:#2E7D32;margin-bottom:8px">✅ 确认归属正确，加入名册</div>
+      <div style="font-size:12px;color:#555;margin-bottom:10px">该昵称确实属于此客服，将自动加入名册，之后不再提示待核对。</div>
+      <button onclick="confirmNickAdd()" style="background:#4CAF50;color:#fff;border:none;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+        ✅ 确认加入名册
+      </button>
+    </div>
+
+    <!-- 归属有误 -->
+    <div style="background:#FFF3E0;border-radius:10px;padding:14px 16px;margin-bottom:20px">
+      <div style="font-size:13px;font-weight:600;color:#E65100;margin-bottom:8px">❌ 归属有误，更正真实姓名</div>
+      <div style="font-size:12px;color:#555;margin-bottom:10px">该昵称对应的真实姓名有误，请选择正确的客服真实姓名：</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="nickCorrectAgent" style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+          <option value="">请选择正确的真实姓名…</option>
+        </select>
+        <button onclick="confirmNickReassign()" style="background:#FF6F00;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+          更正
+        </button>
+      </div>
+    </div>
+
+    <div id="nickConfirmStatus" style="font-size:12px;min-height:18px;margin-bottom:12px"></div>
+    <button onclick="closeNickConfirm()" style="background:#f0f0f0;color:#333;border:none;padding:8px 20px;border-radius:8px;font-size:13px;cursor:pointer">
+      关闭
+    </button>
+  </div>
+</div>
+
 <!-- CSV 质检解析预览弹窗 -->
 <div id="qcPreviewModal">
   <div class="qc-preview-box">
-    <div class="qc-preview-title">📊 解析预览 — 是否更新系统数据？</div>
+    <div class="qc-preview-title">📊 解析预览 — 是否写入系统数据库？</div>
     <div class="qc-preview-stats" id="qcPreviewStats"></div>
     <div style="font-size:12px;color:var(--text2);background:#fff9f0;border:1px solid #ffe0b2;border-radius:8px;padding:10px 14px">
-      ⚠️ 确认后将替换当前所有质检数据，所有模块同步刷新
+      ⚠️ 确认后会写入数据库 qc_records（按会话ID更新/新增），不会删除其他月份数据；完成后会自动切到本次CSV月份
     </div>
     <div class="qc-preview-actions">
       <button class="btn-qc-cancel" onclick="closeQcPreview()">取消</button>
-      <button class="btn-qc-confirm" id="btnQcConfirm" onclick="confirmQcUpdate()">✅ 确认更新</button>
+      <button class="btn-qc-confirm" id="btnQcConfirm" onclick="confirmQcUpdate()">✅ 确认写入数据库</button>
     </div>
   </div>
 </div>
@@ -619,6 +674,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div class="nav-tab" data-tab="shopflow" onclick="switchTab('shopflow')">🏪 店铺流程</div>
   <div class="nav-tab" data-tab="scheme" onclick="switchTab('scheme')">📐 绩效方案</div>
   <div class="nav-tab" data-tab="perf" onclick="switchTab('perf')">📊 绩效结果</div>
+  <div class="nav-tab" data-tab="rank" onclick="switchTab('rank')">🏆 绩效排名</div>
   <div class="nav-tab" data-tab="roster" onclick="switchTab('roster')">📋 客服名册</div>
   <div class="nav-tab" data-tab="users" onclick="switchTab('users')">👥 用户管理</div>
 </div>
@@ -640,10 +696,13 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       </div>
       <div class="qc-upload-actions">
         <!-- 飞书同步 -->
-        <button class="qc-upload-btn" id="feishuSyncBtn" onclick="syncFeishu()"
-          style="background:#366EF4;display:flex;align-items:center;gap:6px">
-          🔄 同步飞书数据
-        </button>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+          <button class="qc-upload-btn" id="feishuSyncBtn" onclick="syncFeishu()"
+            style="background:#366EF4;display:flex;align-items:center;gap:6px">
+            🔄 同步飞书数据
+          </button>
+          <span title="由公司服务器定时任务执行" style="font-size:10px;color:var(--text2);white-space:nowrap">自动：每月8/13/17/20/25/30日 18:00</span>
+        </div>
         <!-- CSV 上传 -->
         <label class="qc-file-label" for="qcFileInput" style="margin-left:6px">
           📄 上传 CSV
@@ -654,6 +713,13 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       </div>
       <div class="qc-upload-status" id="qcUploadStatus"></div>
     </div>
+  </div>
+
+  <!-- 月份切换 -->
+  <div id="qcMonthBar" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <span style="font-size:13px;color:var(--text2);font-weight:500">查看月份：</span>
+    <div id="qcMonthBtns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <span id="qcMonthLoading" style="font-size:12px;color:var(--text2);display:none">⏳ 加载中…</span>
   </div>
 
   <div class="stats-grid" id="statsGrid"></div>
@@ -679,7 +745,6 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     <label>月份：</label>
     <select id="monthFilter" onchange="applyFilters()">
       <option value="">全部月份</option>
-      <option value="2026-04" selected>2026年4月</option>
     </select>
     <label>日期：</label>
     <select id="dateFilter" onchange="applyFilters()">
@@ -717,6 +782,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
             <th>结果</th>
             <th>扣分维度</th>
             <th style="min-width:200px">问题描述</th>
+            <th style="min-width:200px">问题解析&改进</th>
           </tr>
         </thead>
         <tbody id="detailBody"></tbody>
@@ -804,6 +870,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
           <option value="mcd">🍔 麦当劳官方旗舰店</option>
           <option value="sfj">🧴 舒肤佳</option>
           <option value="sx">💇 沙宣</option>
+          <option value="lfm">🌸 丽敷美</option>
           <option value="gil">🪒 吉列</option>
           <option value="yb">💧 怡宝</option>
           <option value="atm">🍼 爱他美</option>
@@ -829,6 +896,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
           <option value="mcd">🍔 麦当劳官方旗舰店</option>
           <option value="sfj">🧴 舒肤佳</option>
           <option value="sx">💇 沙宣</option>
+          <option value="lfm">🌸 丽敷美</option>
           <option value="gil">🪒 吉列</option>
           <option value="yb">💧 怡宝</option>
           <option value="atm">🍼 爱他美</option>
@@ -1463,6 +1531,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 
     <!-- 以下店铺无静态内容，数据来自 Supabase AI 上传 -->
     <div id="shopflow-sx" style="display:none"><div class="sop-section" style="padding:32px;text-align:center;color:var(--text2)">暂无流程内容，请使用上方「AI 解析上传」功能添加</div></div>
+    <div id="shopflow-lfm" style="display:none"><div class="sop-section" style="padding:32px;text-align:center;color:var(--text2)">暂无流程内容，请使用上方「AI 解析上传」功能添加</div></div>
     <div id="shopflow-gil" style="display:none"><div class="sop-section" style="padding:32px;text-align:center;color:var(--text2)">暂无流程内容，请使用上方「AI 解析上传」功能添加</div></div>
     <div id="shopflow-yb" style="display:none"><div class="sop-section" style="padding:32px;text-align:center;color:var(--text2)">暂无流程内容，请使用上方「AI 解析上传」功能添加</div></div>
     <div id="shopflow-atm" style="display:none"><div class="sop-section" style="padding:32px;text-align:center;color:var(--text2)">暂无流程内容，请使用上方「AI 解析上传」功能添加</div></div>
@@ -1477,7 +1546,10 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div class="section">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div class="section-title">📋 客服名册</div>
-      <button class="btn-add-roster" id="btnAddRoster" onclick="openRosterModal(null)" style="display:none">＋ 添加记录</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="exportRosterExcel()" style="background:#00897B;color:white;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">⬇ 导出名册Excel</button>
+        <button class="btn-add-roster" id="btnAddRoster" onclick="openRosterModal(null)" style="display:none">＋ 添加记录</button>
+      </div>
     </div>
     <div class="roster-toolbar">
       <input class="roster-search" id="rosterSearch" placeholder="搜索真实姓名 / 昵称..." oninput="renderRoster()">
@@ -1518,6 +1590,40 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 
 <!-- 用户管理页 -->
 <div class="page" id="page-users">
+
+  <!-- 飞书同步管理（仅管理员） -->
+  <div class="section" id="syncMgmtSection" style="display:none;margin-bottom:20px">
+    <div class="section-title" style="margin-bottom:14px">🔄 飞书同步管理</div>
+    <div style="background:#f8f9fa;border-radius:10px;padding:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+        飞书每次只同步<strong>起始日期及之后</strong>的数据，修改后下次同步生效
+      </div>
+      <!-- 日期选择器 -->
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:13px;font-weight:600;white-space:nowrap">同步起始日期：</label>
+        <input type="date" id="syncStartDateInput"
+          style="padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;color:var(--primary)"
+          onchange="document.getElementById('syncMgmtStatus').textContent=''" />
+        <button onclick="saveSyncStartDate()"
+          style="padding:8px 18px;background:#2E7D32;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+          💾 保存日期
+        </button>
+      </div>
+      <!-- 快捷操作 -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="archiveCurrentMonth()"
+          style="padding:7px 14px;background:#1565C0;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">
+          📦 下次同步从下月开始（安全检查）
+        </button>
+        <button onclick="resetSyncStartDate()"
+          style="padding:7px 12px;background:white;color:#666;border:1px solid #ddd;border-radius:8px;font-size:12px;cursor:pointer">
+          ↩ 重置为2026-04-01
+        </button>
+      </div>
+      <div id="syncMgmtStatus" style="font-size:12px;margin-top:10px;color:#666"></div>
+    </div>
+  </div>
+
   <div class="section">
     <div class="user-mgmt-header">
       <div class="section-title">👥 用户权限管理</div>
@@ -1578,16 +1684,33 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 <!-- SOP页 -->
 <div class="page" id="page-sop">
   <div class="section">
+
+    <!-- SOP 编辑栏（仅管理员/主管可见） -->
+    <div id="sopEditBar" style="display:none;align-items:center;gap:8px;margin-bottom:16px">
+      <button id="sopEditBtn" onclick="toggleSopEdit()"
+        style="padding:7px 16px;border-radius:8px;border:1.5px solid #1565C0;background:white;color:#1565C0;font-weight:600;font-size:13px;cursor:pointer">
+        ✏️ 编辑SOP
+      </button>
+      <button id="sopSaveBtn" onclick="saveSopEdit()" style="display:none;padding:7px 16px;border-radius:8px;border:none;background:#2E7D32;color:white;font-weight:600;font-size:13px;cursor:pointer">
+        💾 保存
+      </button>
+      <button id="sopCancelBtn" onclick="cancelSopEdit()" style="display:none;padding:7px 16px;border-radius:8px;border:1.5px solid #999;background:white;color:#666;font-weight:600;font-size:13px;cursor:pointer">
+        取消
+      </button>
+      <span id="sopSaveStatus" style="font-size:12px;color:#999"></span>
+    </div>
+
+    <div id="sop-content">
     <div class="sop-section">
       <div class="sop-title">一、质检总则</div>
       <table class="sop-table">
         <tr><th width="120">项目</th><th>说明</th></tr>
         <tr><td>质检执行人</td><td>客服组长 / 客服主管 / AI质检系统</td></tr>
-        <tr><td>质检对象</td><td>全体一线客服（麦小妖、麦小薇、麦小东、麦小风、麦小淼）</td></tr>
+        <tr><td>质检对象</td><td>全体一线客服</td></tr>
         <tr><td>质检周期</td><td>每日执行，每周汇总，每月考核</td></tr>
         <tr><td>质检平台</td><td>飞鸽客服系统（im.jinritemai.com）</td></tr>
-        <tr><td>合格线</td><td>单次质检 ≥85分为合格；月度合格率 = 合格条数 / 总质检条数</td></tr>
-        <tr><td>考核关联</td><td>月度合格率 &lt;85% → 警示；差评专项合格率 &lt;70% → 必须参加专项培训</td></tr>
+        <tr><td>合格线</td><td>单次质检 ≥85分为合格</td></tr>
+        <tr><td>考核关联</td><td>月度合格率 &gt;90% 为店铺考核指标</td></tr>
       </table>
     </div>
 
@@ -1595,36 +1718,19 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div class="sop-title">二、每日质检流程</div>
       <div class="flow-steps">
         <div class="flow-step"><div class="flow-step-box">① 必检差评</div><div class="flow-arrow">→</div></div>
-        <div class="flow-step"><div class="flow-step-box">② 场景抽检5条</div><div class="flow-arrow">→</div></div>
-        <div class="flow-step"><div class="flow-step-box">③ 长会话抽检5条</div><div class="flow-arrow">→</div></div>
-        <div class="flow-step"><div class="flow-step-box">④ 补充抽检2条</div><div class="flow-arrow">→</div></div>
-        <div class="flow-step"><div class="flow-step-box">⑤ 更新台账</div><div class="flow-arrow">→</div></div>
-        <div class="flow-step"><div class="flow-step-box">⑥ 发布日报</div></div>
+        <div class="flow-step"><div class="flow-step-box">② 补充抽检</div><div class="flow-arrow">→</div></div>
+        <div class="flow-step"><div class="flow-step-box">③ 更新台账</div><div class="flow-arrow">→</div></div>
+        <div class="flow-step"><div class="flow-step-box">④ 发布日报</div></div>
       </div>
       <table class="sop-table" style="margin-top:12px">
         <tr><th>步骤</th><th>质检类型</th><th>数量</th><th>触发条件</th><th>筛选方式</th></tr>
         <tr><td>① 必检</td><td>差评/中评会话</td><td>全部</td><td>每日必做，无上限</td><td>飞鸽筛选：会话评价 = 不满意+非常不满意</td></tr>
-        <tr><td>② 场景抽检</td><td>当日场景轮转（见下表）</td><td>5条</td><td>每日按场景周计划</td><td>飞鸽筛选：关键词/问题类型</td></tr>
-        <tr><td>③ 长会话抽检</td><td>时长≥8分钟 且未评价</td><td>5条</td><td>每日必做</td><td>飞鸽筛选：会话时长 ≥8分钟 + 未评价</td></tr>
-        <tr><td>④ 补充抽检</td><td>近期低分客服优先</td><td>2条</td><td>可选，建议每日执行</td><td>优先选平均分最低的客服的会话</td></tr>
+        <tr><td>② 补充抽检</td><td>合格率低于90%的店铺</td><td>加20条，单月最多50条</td><td>店铺月合格率 &lt;90% 时触发</td><td>优先抽检合格率未达标店铺，结果计入最终合格率</td></tr>
       </table>
     </div>
 
     <div class="sop-section">
-      <div class="sop-title">三、场景轮转周计划</div>
-      <table class="sop-table">
-        <tr><th>星期</th><th>质检场景</th><th>重点检查维度</th><th>筛选关键词</th></tr>
-        <tr><td>周一</td><td>退款/退单类</td><td>退款时效告知、方案完整性</td><td>退款、退单、取消、申请退</td></tr>
-        <tr><td>周二</td><td>配送异常类</td><td>情绪安抚、赔偿方案、升级处理</td><td>配送、超时、未到、骑手、丢失</td></tr>
-        <tr><td>周三</td><td>优惠券/活动类</td><td>信息准确性、条件完整告知</td><td>优惠券、活动、返券、积分、兑换</td></tr>
-        <tr><td>周四</td><td>投诉/差评类</td><td>安抚话术、问题解决闭环</td><td>投诉、不满意、太差、问题、差评</td></tr>
-        <tr><td>周五</td><td>一般咨询类</td><td>开结束语、引导好评、信息准确</td><td>营业时间、套餐、菜单、价格</td></tr>
-        <tr><td>周六/日</td><td>补充/遗漏场景</td><td>灵活处理本周发现问题</td><td>根据本周情况决定</td></tr>
-      </table>
-    </div>
-
-    <div class="sop-section">
-      <div class="sop-title">四、质检评分标准（满分100分）</div>
+      <div class="sop-title">三、质检评分标准（满分100分）</div>
       <table class="sop-table">
         <tr><th>维度</th><th>评分标准</th><th>扣分范围</th><th>常见扣分项</th></tr>
         <tr><td><span class="tag tag-dim1">维度1</span><br>沟通体验与规范</td><td>开场白/结束语、等待话术、用语规范</td><td>扣1-5分/项</td><td>结束语缺失、等待话术生硬、用语不规范</td></tr>
@@ -1636,29 +1742,15 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     </div>
 
     <div class="sop-section">
-      <div class="sop-title">五、人员KPI考核规则</div>
+      <div class="sop-title">四、人员KPI考核规则</div>
       <table class="sop-table">
         <tr><th>指标</th><th>计算方式</th><th>说明</th></tr>
-        <tr><td>整体合格率</td><td>质检分≥85的条数 ÷ 总质检条数</td><td>月度汇总，按客服个人统计</td></tr>
-        <tr><td>差评专项合格率</td><td>差评中处理达标条数 ÷ 总差评条数</td><td>达标 = 分≥80且有完整解决方案</td></tr>
-        <tr><td>周均抽检条数</td><td>根据历史得分动态调整</td><td>见下方分档规则</td></tr>
+        <tr><td>整体合格率</td><td>质检不扣分条数 ÷ 总质检条数</td><td>月度汇总，按客服个人统计</td></tr>
       </table>
-      <div style="margin-top:12px">
-      <table class="sop-table">
-        <tr><th>近期平均分区间</th><th>每周随机抽检条数</th><th>附加要求</th></tr>
-        <tr><td>≥95分（优秀）</td><td>2条</td><td>无</td></tr>
-        <tr><td>90-94分（良好）</td><td>3条</td><td>无</td></tr>
-        <tr><td>85-89分（需关注）</td><td>5条</td><td>需反馈改进计划</td></tr>
-        <tr><td>&lt;85分（警示）</td><td>8条+专项复核</td><td>必须参加1v1辅导</td></tr>
-      </table>
-      </div>
-      <div class="highlight-box" style="margin-top:12px">
-        <strong>💡 公平性保障：</strong>每周五检查各客服被抽检次数，若某客服本周0条被抽，下周补充抽检优先选其会话。开场/结束语检查每客服每天只检1条，避免重复扣分。
-      </div>
     </div>
 
     <div class="sop-section">
-      <div class="sop-title">六、质检申诉流程</div>
+      <div class="sop-title">五、质检申诉流程</div>
       <div class="flow-steps">
         <div class="flow-step"><div class="flow-step-box">客服提出申诉</div><div class="flow-arrow">→</div></div>
         <div class="flow-step"><div class="flow-step-box">48小时内提交</div><div class="flow-arrow">→</div></div>
@@ -1667,6 +1759,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
         <div class="flow-step"><div class="flow-step-box">更新质检结果</div></div>
       </div>
     </div>
+    </div><!-- /sop-content -->
   </div>
 </div>
 
@@ -1735,7 +1828,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div class="weight-label">非满意率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:180px;background:#DA291C">30%</div>
-        <div class="weight-note">按品牌标准逐店考核，达标率≤60%整体清零</div>
+        <div class="weight-note">按品牌标准逐店考核，达标率&lt;60%整体清零</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1778,6 +1871,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <tr><td>爱他美奶粉海外旗舰店</td><td><span class="badge-warn">≤8%</span></td><td></td></tr>
       <tr><td>爱他美至熠海外旗舰店</td><td><span class="badge-warn">≤8%</span></td><td></td></tr>
       <tr><td>沙宣官方旗舰店</td><td><span class="badge-pass">≤20%</span></td><td></td></tr>
+      <tr><td>丽敷美官方旗舰店</td><td><span class="badge-pass">≤20%</span></td><td>2026年8月起新增服务店铺</td></tr>
       <tr><td>麦当劳官方旗舰店</td><td><span class="badge-pass">≤20%</span></td><td>客服无处理权，只能升级400</td></tr>
       <tr><td>a2 GENESIS / a2紫曜 / STOKKE / 怡宝</td><td><span class="badge-pass">≤20%</span></td><td>无客户考核时按20%为准</td></tr>
     </table>
@@ -1785,7 +1879,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 
   <div class="scheme-card">
     <div class="scheme-card-title">关键规则</div>
-    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>非满达标率≤60%</strong> → 本月整体绩效清零（不只是非满项，是所有绩效）</div></div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>非满达标率&lt;60%</strong> → 本月整体绩效清零（不只是非满项，是所有绩效）</div></div>
     <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>质检合格率达标率≤60%</strong> → 本项无绩效值</div></div>
     <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
     <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围，增加店铺且接待量高于该店铺平均值，需组长+主管+总监确认</div></div>
@@ -1798,10 +1892,10 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   <div class="scheme-card">
     <div class="scheme-card-title">权重分配</div>
     <div class="weight-row">
-      <div class="weight-label">售后处理时长达成率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
+      <div class="weight-label">售后处理响应时长 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:300px;background:#DA291C">50%</div>
-        <div class="weight-note">每个店铺售后处理时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零</div>
+        <div class="weight-note">每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1829,7 +1923,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 
   <div class="scheme-card">
     <div class="scheme-card-title">关键规则</div>
-    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理时长达成率≤60%</strong> → 本月整体绩效清零</div></div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理响应时长达标率≤60%</strong> → 本月整体绩效清零</div></div>
     <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>平均解决时间目标≤96h</strong>，母婴类允许适当延长，后期持续摸索优化</div></div>
     <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
     <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围或储备组长期间，需组长+主管+总监确认</div></div>
@@ -1845,7 +1939,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div class="weight-label">团队非满意度达标率 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:180px;background:#DA291C">30%</div>
-        <div class="weight-note">所有负责店铺达标率汇总，达标店铺/总服务店铺，≤60%整体清零</div>
+        <div class="weight-note">所有负责店铺达标率汇总，达标店铺/总服务店铺</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1863,7 +1957,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       </div>
     </div>
     <div class="weight-row">
-      <div class="weight-label">售后工单处理时长达成率</div>
+      <div class="weight-label">售后处理响应时长</div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:150px;background:#1565C0">25%</div>
         <div class="weight-note">≥100分，店铺达标率要求100%</div>
@@ -1884,14 +1978,13 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       服务体验分由三个指标共同构成：<br>
       <strong style="color:var(--text)">① 平均响应时长（25%）</strong> — 客服接待侧，直接影响平台体验分<br>
       <strong style="color:var(--text)">② 3分钟回复率（10%）</strong> — 客服接待侧，店铺达标率100%<br>
-      <strong style="color:var(--text)">③ 售后工单处理时长（25%）</strong> — 工单侧，直接影响平台体验分<br>
+      <strong style="color:var(--text)">③ 售后处理响应时长（25%）</strong> — 工单侧，≥90分达标，直接影响平台体验分<br>
       三项合计占组长绩效 <strong style="color:var(--primary)">60%</strong>，是组长最核心的考核维度。
     </div>
   </div>
 
   <div class="scheme-card">
     <div class="scheme-card-title">关键规则</div>
-    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>团队非满达标率≤60%</strong> → 本月整体绩效清零</div></div>
     <div class="rule-item red"><div class="rule-icon">📉</div><div>连续3个月非满达标率≤75% / 3个月内品牌投诉≥3次 / 直播间投诉≥3次 / 员工投诉≥3次 → 组长更替或淘汰</div></div>
     <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+20%</strong>：主动培养储备组长 / 获客户或跨部门表扬，需邮件申请+组长+主管+总监确认</div></div>
     <div class="rule-item red"><div class="rule-icon">📉</div><div><strong>重大事故-10%</strong>：品牌书面投诉 / 直播间重大投诉 / 客服部重大事故</div></div>
@@ -2114,7 +2207,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
   </div>
   <div id="kpiUploadBody">
     <!-- 基础配置 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
       <div>
         <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">📅 考核月份</label>
         <input type="month" id="kpiMonth" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
@@ -2126,14 +2219,6 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
       <div>
         <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">📆 应出勤天数</label>
         <input type="number" id="kpiShouldDays" value="22" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
-      </div>
-      <div>
-        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">👑 组长姓名</label>
-        <input type="text" id="kpiLeaderName" placeholder="如：张晓猪" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
-      </div>
-      <div>
-        <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">👑 组长绩效基数（元）</label>
-        <input type="number" id="kpiLeaderBase" value="2000" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box">
       </div>
     </div>
 
@@ -2164,24 +2249,31 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 
     <!-- 组长店铺数据 -->
     <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px">👑 组长各店铺汇总数据 <span style="font-size:11px;font-weight:400;color:var(--text2)">（已预填截图数据，可修改）</span></div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#f8f8f8">
-            <th style="padding:7px 10px;text-align:left;font-weight:600">店铺</th>
-            <th style="padding:7px;text-align:center;font-weight:600">非满率(%)</th>
-            <th style="padding:7px;text-align:center;font-weight:600">响应时长(s)</th>
-            <th style="padding:7px;text-align:center;font-weight:600">售后处理时长(分)</th>
-            <th style="padding:7px;text-align:center;font-weight:600">3分钟回复率(%)</th>
-          </tr></thead>
-          <tbody id="leaderShopBody"></tbody>
-        </table>
+      <!-- 标题行 + 上传按钮 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:13px;font-weight:600">👑 组长与负责店铺
+          <span style="font-size:11px;font-weight:400;color:var(--text2)">（每位组长独立维护，可动态增删店铺）</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="button" onclick="leaderChooseFirstImport('excel')" style="padding:6px 12px;border:1px solid var(--pass);border-radius:8px;background:white;color:var(--pass);font-size:12px;font-weight:600;cursor:pointer">上传 Excel</button>
+          <button type="button" onclick="leaderChooseFirstImport('screenshot')" style="padding:6px 12px;border:1px solid var(--primary);border-radius:8px;background:white;color:var(--primary);font-size:12px;font-weight:600;cursor:pointer">上传截图</button>
+          <button onclick="leaderAddGroup()" style="padding:6px 12px;background:#6A1B9A;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">＋ 添加组长</button>
+        </div>
       </div>
-      <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
-        <label style="font-size:12px;font-weight:600">本月培训次数：</label>
-        <input type="number" id="leaderTrainingCnt" value="8" min="0" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:80px">
-        <span style="font-size:11px;color:var(--text2)">≥10次满分 · ≤5次为0分 · 按系数折算</span>
-      </div>
+
+      <input type="file" id="leaderScreenshotInput" accept="image/*" style="display:none" onchange="leaderParseScreenshot(this)">
+      <input type="file" id="leaderExcelInput" accept=".xlsx,.xls" style="display:none" onchange="leaderParseExcel(this)">
+
+      <!-- 识别状态 -->
+      <div id="leaderParseStatus" style="display:none;font-size:12px;padding:8px 12px;border-radius:8px;margin-bottom:10px;background:#fff8e1;color:#E65100"></div>
+
+      <div id="leaderGroupsContainer"></div>
+    </div>
+
+    <!-- 组长绩效预测结果（计算后显示） -->
+    <div id="leaderResultCard" style="display:none;border:2px solid #7B1FA2;border-radius:12px;padding:16px;margin-bottom:16px;background:linear-gradient(135deg,#f3e5f5 0%,#fce4ec 100%)">
+      <div style="font-size:14px;font-weight:700;color:#6A1B9A;margin-bottom:14px">👑 组长绩效预测结果</div>
+      <div id="leaderResultInner"></div>
     </div>
 
     <div style="display:flex;gap:10px;align-items:center">
@@ -2231,7 +2323,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     <div style="overflow-x:auto">
       <table class="detail-table">
         <thead><tr>
-          <th>月份</th><th>姓名</th><th>所属组</th><th>售后处理时长达成率</th><th>工单量达标率</th><th>平均解决时长达标</th><th>其他要求</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
+          <th>月份</th><th>姓名</th><th>所属组</th><th>售后处理响应时长</th><th>工单量达标率</th><th>平均解决时长达标</th><th>其他要求</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
         </tr></thead>
         <tbody id="pfTable_workorder"><tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr></tbody>
       </table>
@@ -2250,7 +2342,7 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
     <div style="overflow-x:auto">
       <table class="detail-table">
         <thead><tr>
-          <th>月份</th><th>姓名</th><th>团队非满达标率</th><th>响应时长达标率</th><th>售后工单处理时长</th><th>培训计划完成率</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
+          <th>月份</th><th>姓名</th><th>团队非满达标率</th><th>响应时长达标率</th><th>售后处理响应时长</th><th>培训计划完成率</th><th>出勤系数</th><th>加减分</th><th>绩效系数</th><th>基数</th><th>实发</th><th>备注</th><th>操作</th>
         </tr></thead>
         <tbody id="pfTable_leader"><tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr></tbody>
       </table>
@@ -2320,6 +2412,10 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
           <th>非满结果</th>
           <th>质检合格率</th>
           <th>质检结果</th>
+          <th>响应时长</th>
+          <th>响应结果</th>
+          <th>3分钟回复率</th>
+          <th>3分钟结果</th>
           <th style="min-width:70px">接待量</th>
         </tr></thead>
         <tbody id="sdTableBody"><tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text2)">请先选择月份查看数据</td></tr></tbody>
@@ -2331,6 +2427,61 @@ const ROSTER_AGENTS = new Set(Object.keys(ROSTER_MAP));
 <div style="margin-top:12px;padding:10px 14px;background:#fff8e1;border-radius:8px;border:1px solid var(--gold);font-size:12px;color:#666;line-height:1.8">
   <strong style="color:#B8860B">云端说明：</strong>数据存储在 Supabase 云端，录入后所有人打开链接可实时查看。导出CSV可直接交给人资使用。
 </div>
+</div>
+
+
+<!-- 绩效排名页 -->
+<div class="page" id="page-rank">
+  <style>
+    .rank-card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:16px}
+    .rank-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+    .rank-toolbar select,.rank-toolbar input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:white}
+    .rank-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .rank-tab{padding:8px 14px;border:1px solid var(--border);border-radius:999px;background:white;cursor:pointer;font-size:13px;color:var(--text2);font-weight:600}
+    .rank-tab.active{background:var(--primary);color:white;border-color:var(--primary)}
+    .rank-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+    .rank-kpi{background:white;border-radius:10px;padding:14px;border-top:3px solid var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .rank-kpi .label{font-size:12px;color:var(--text2);margin-bottom:4px}.rank-kpi .val{font-size:24px;font-weight:800}.rank-kpi .sub{font-size:11px;color:var(--text2);margin-top:3px}
+    .rank-table{width:100%;border-collapse:collapse;font-size:13px;background:white;border-radius:10px;overflow:hidden}
+    .rank-table th{background:#f8f8f8;padding:10px 9px;text-align:center;font-weight:700;color:#555;border-bottom:1px solid var(--border);white-space:nowrap}
+    .rank-table td{padding:10px 9px;text-align:center;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+    .rank-table td.name{text-align:left;font-weight:700;white-space:nowrap}
+    .rank-no{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#eee;font-weight:800;color:#555}.rank-no.top1{background:#FFC72C;color:#6d4c00}.rank-no.top2{background:#e0e0e0;color:#444}.rank-no.top3{background:#d7a86e;color:#5d3700}
+    .rank-tag{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}.tag-good{background:#e8f5e9;color:#2e7d32}.tag-warn{background:#fff3e0;color:#e65100}.tag-risk{background:#fdecea;color:#b71c1c}.tag-blue{background:#e3f2fd;color:#1565c0}.tag-gray{background:#f5f5f5;color:#666}
+    .rank-score{font-size:16px;font-weight:800;color:var(--primary)}.rank-score.good{color:var(--pass)}.rank-score.warn{color:var(--warn)}.rank-score.risk{color:var(--fail)}
+    .rank-note{padding:10px 14px;background:#f7f9ff;border-left:4px solid #1565C0;border-radius:8px;font-size:12px;color:#555;line-height:1.7;margin-bottom:12px}
+    .rank-empty{text-align:center;color:var(--text2);padding:42px 0;background:white;border-radius:10px}
+    .rank-btn{padding:8px 14px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700}.rank-btn.pri{background:#1565C0;color:white}.rank-btn.sec{background:#f5f5f5;color:#555;border:1px solid var(--border)}
+  </style>
+
+  <div class="rank-card">
+    <div class="rank-toolbar">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <select id="rankSourceSel" onchange="rankRefreshMonthSel();rankRender()" title="正式数据=已保存到系统；试算数据=刚在绩效结果页计算但未保存的数据">
+          <option value="saved">正式保存数据</option>
+          <option value="trial">当前试算数据</option>
+        </select>
+        <select id="rankMonthSel" onchange="rankMonthChanged()"><option value="">选择月份</option></select>
+        <input id="rankSearch" placeholder="搜索客服姓名…" oninput="rankRender()" style="width:140px">
+        <button class="rank-btn sec" onclick="rankReload()">刷新数据</button>
+        <input id="rankScheduleFile" type="file" accept=".xlsx,.xls" style="display:none" onchange="rankImportSchedule(this.files[0]);this.value=''">
+        <button class="rank-btn sec" onclick="document.getElementById('rankScheduleFile').click()">上传排班表</button>
+        <span id="rankScheduleStatus" style="font-size:12px;color:var(--text2)"></span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="rank-btn pri" onclick="rankExportCSV()">导出当前榜单CSV</button>
+      </div>
+    </div>
+    <div class="rank-tabs">
+      <button class="rank-tab" data-rank-tab="volume" onclick="rankSwitch('volume')">🔥 高接待量榜</button>
+      <button class="rank-tab" data-rank-tab="quality" onclick="rankSwitch('quality')">✅ 质量稳定榜</button>
+      <button class="rank-tab active" data-rank-tab="overall" onclick="rankSwitch('overall')">🏆 负载修正综合榜</button>
+      <button class="rank-tab" data-rank-tab="risk" onclick="rankSwitch('risk')">⚠️ 风险名单</button>
+    </div>
+    <div id="rankSummary" class="rank-grid"></div>
+    <div id="rankNote" class="rank-note"></div>
+    <div style="overflow-x:auto"><div id="rankContent"></div></div>
+  </div>
 </div>
 
 </div><!-- /content -->
@@ -2414,6 +2565,29 @@ function normalizeShopNames() {
 // 图表实例（用于更新时销毁重建）
 let _chartAgentInst = null;
 let _chartIssueInst = null;
+
+// ──── Dashboard 加载遮罩 ────
+function _showDashboardLoading(show) {
+  let mask = document.getElementById('_dashLoadMask');
+  if (show) {
+    if (!mask) {
+      mask = document.createElement('div');
+      mask.id = '_dashLoadMask';
+      mask.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.75);z-index:999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px';
+      mask.innerHTML = '<div style="width:40px;height:40px;border:4px solid #e0e0e0;border-top-color:#c00;border-radius:50%;animation:_spin 0.8s linear infinite"></div><div style="font-size:14px;color:#555;font-weight:600">数据加载中…</div>';
+      if (!document.getElementById('_spinStyle')) {
+        const s = document.createElement('style');
+        s.id = '_spinStyle';
+        s.textContent = '@keyframes _spin{to{transform:rotate(360deg)}}';
+        document.head.appendChild(s);
+      }
+      document.body.appendChild(mask);
+    }
+    mask.style.display = 'flex';
+  } else {
+    if (mask) mask.style.display = 'none';
+  }
+}
 
 // ──── Dashboard 渲染（可重复调用）────
 function renderDashboard() {
@@ -2501,11 +2675,29 @@ function initDetailPage() {
   const sessions = QC_SESSIONS || [];
 
   // 先清空旧选项（保留第一个"全部"选项）
-  ['shopFilter','agentFilter','dateFilter'].forEach(id => {
+  ['monthFilter','shopFilter','agentFilter','dateFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     while (el.options.length > 1) el.remove(1);
   });
+
+  // 动态填充月份选项（从全局 qc_records 月份列表获取，若无则用当前加载月份）
+  const activeMonth = QC_CONFIG.month || '';
+  const mf = document.getElementById('monthFilter');
+  if (mf) {
+    // 从月份切换器按钮获取已知月份列表
+    const knownMonths = [...document.querySelectorAll('[id^="qcMBtn_"]')]
+      .map(b => b.id.replace('qcMBtn_',''))
+      .sort().reverse();
+    const monthList = knownMonths.length ? knownMonths : (activeMonth ? [activeMonth] : []);
+    monthList.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m;
+      o.textContent = m.replace('-', '年') + '月';
+      if (m === activeMonth) o.selected = true;
+      mf.appendChild(o);
+    });
+  }
 
   const shops  = [...new Set(sessions.map(s=>s.shop).filter(Boolean))].sort();
   const agents = [...new Set(sessions.map(s=>s.agent).filter(Boolean))].sort();
@@ -2515,7 +2707,7 @@ function initDetailPage() {
   agents.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('agentFilter').appendChild(o); });
   dates.forEach(v  => { const o=document.createElement('option'); o.value=v; o.textContent=v; document.getElementById('dateFilter').appendChild(o); });
 
-  renderDetailTable(sessions);
+  applyFilters();
 }
 
 function applyFilters() {
@@ -2524,6 +2716,13 @@ function applyFilters() {
   const shop  = document.getElementById('shopFilter')?.value  || '';
   const agent = document.getElementById('agentFilter')?.value || '';
   const pass  = document.getElementById('passFilter')?.value  || '';
+
+  // 如果月份切换到了不是当前已加载的月份，先从数据库重新加载
+  if (month && month !== QC_CONFIG.month) {
+    switchQcMonth(month);
+    return;  // switchQcMonth → loadFromQcRecords → initDetailPage → applyFilters
+  }
+
   let filtered = (QC_SESSIONS||[]).filter(s => {
     if (month && s.month !== month) return false;
     if (date  && s.date  !== date)  return false;
@@ -2540,8 +2739,10 @@ function clearFilters() {
   ['dateFilter','shopFilter','agentFilter','passFilter'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  const mf = document.getElementById('monthFilter'); if (mf) mf.value = '2026-04';
-  renderDetailTable(QC_SESSIONS || []);
+  // 重置月份为当前加载月份（而非硬编码）
+  const mf = document.getElementById('monthFilter');
+  if (mf) mf.value = QC_CONFIG.month || '';
+  applyFilters();
 }
 
 // 昵称名册核对：返回 {badge, tip}
@@ -2565,14 +2766,132 @@ function getNicknameBadge(agent, nickname) {
       tip: ''
     };
   } else {
-    // 人在名册但昵称对不上
+    // 人在名册但昵称对不上 → 可点击确认
     const known = [...nickSet].join('、');
+    const canEdit = _currentRole === 'admin' || _currentRole === 'supervisor';
+    // 用 &quot; 替换双引号，避免 onclick 属性被截断
+    const q = s => JSON.stringify(s).replace(/"/g, '&quot;');
+    const extraAttrs = canEdit
+      ? `onclick="openNickConfirm(${q(agent)},${q(nickname)})" title="点击确认昵称归属"`
+      : `title="名册中该客服的昵称为：${known}"`;
+    const cursor = canEdit ? 'pointer' : 'help';
     return {
       badge: `<span style="font-size:12px;color:#E65100">${esc(nickname)}</span>
-              <span title="名册中该客服的昵称为：${known}" style="font-size:10px;background:#FFF3E0;color:#E65100;padding:1px 5px;border-radius:8px;margin-left:4px;cursor:help">⚠️待核对</span>`,
+              <span ${extraAttrs} style="font-size:10px;background:#FFF3E0;color:#E65100;padding:1px 5px;border-radius:8px;margin-left:4px;cursor:${cursor}">⚠️待核对${canEdit?'（点击确认）':''}</span>`,
       tip: known
     };
   }
+}
+
+// ─── 昵称待核对确认弹窗 ─────────────────────────────────────────
+let _nickConfirmState = { agent: '', nickname: '' };
+
+function openNickConfirm(agent, nickname) {
+  _nickConfirmState = { agent, nickname };
+  const modal = document.getElementById('nickConfirmModal');
+  document.getElementById('nickConfirmDesc').innerHTML =
+    `客服真实姓名：<strong>${esc(agent)}</strong><br>` +
+    `飞书昵称：<strong style="color:#E65100">${esc(nickname)}</strong><br>` +
+    `<span style="font-size:11px;color:#888">名册中暂无此昵称，请确认归属是否正确</span>`;
+  document.getElementById('nickConfirmStatus').textContent = '';
+
+  // 填充真实姓名下拉
+  const sel = document.getElementById('nickCorrectAgent');
+  const allAgents = [...ROSTER_AGENTS].sort();
+  sel.innerHTML = `<option value="">请选择正确的真实姓名…</option>` +
+    allAgents.map(n => `<option value="${esc(n)}"${n===agent?' selected':''}>${esc(n)}</option>`).join('');
+
+  modal.style.display = 'flex';
+}
+
+function closeNickConfirm() {
+  document.getElementById('nickConfirmModal').style.display = 'none';
+}
+
+async function _saveNickToRoster(realName, nickname) {
+  // 先检查是否已存在，再插入
+  const { data: existing } = await _supa
+    .from('agent_roster')
+    .select('id')
+    .eq('real_name', realName)
+    .eq('nickname', nickname)
+    .maybeSingle();
+  if (!existing) {
+    const { error } = await _supa
+      .from('agent_roster')
+      .insert({ real_name: realName, nickname: nickname, shop_name: '' });
+    if (error) throw error;
+  }
+  // 更新内存名册
+  ROSTER_AGENTS.add(realName);
+  if (!_rosterNickSet[realName]) _rosterNickSet[realName] = new Set();
+  _rosterNickSet[realName].add(nickname);
+}
+
+async function confirmNickAdd() {
+  const { agent, nickname } = _nickConfirmState;
+  const statusEl = document.getElementById('nickConfirmStatus');
+  statusEl.style.color = '#666';
+  statusEl.textContent = '⏳ 保存中…';
+  try {
+    await _saveNickToRoster(agent, nickname);
+    statusEl.style.color = 'var(--pass)';
+    statusEl.textContent = `✅ 已将「${nickname}」加入 ${agent} 的名册`;
+    // 刷新明细表格（重新渲染 badge）
+    setTimeout(() => {
+      closeNickConfirm();
+      renderDetailTable(currentFilteredSessions());
+    }, 800);
+  } catch(e) {
+    statusEl.style.color = 'var(--fail)';
+    statusEl.textContent = '❌ 保存失败：' + e.message;
+  }
+}
+
+async function confirmNickReassign() {
+  const { agent: oldAgent, nickname } = _nickConfirmState;
+  const newAgent = document.getElementById('nickCorrectAgent').value;
+  if (!newAgent) { alert('请先选择正确的客服真实姓名'); return; }
+  const statusEl = document.getElementById('nickConfirmStatus');
+  statusEl.style.color = '#666';
+  statusEl.textContent = '⏳ 保存中…';
+  try {
+    await _saveNickToRoster(newAgent, nickname);
+    // 同步更新内存中所有使用该昵称的记录（不限于当前行），将 agent 改为正确人名
+    // 这样同一昵称的其他行也会一次性同步变绿，不需要逐条确认
+    if (QC_SESSIONS) {
+      QC_SESSIONS.forEach(s => {
+        if (s.nickname === nickname && s.agent === oldAgent) s.agent = newAgent;
+      });
+    }
+    statusEl.style.color = 'var(--pass)';
+    statusEl.textContent = `✅ 已将「${nickname}」归属到 ${newAgent} 的名册`;
+    setTimeout(() => {
+      closeNickConfirm();
+      renderDetailTable(currentFilteredSessions());
+    }, 800);
+  } catch(e) {
+    statusEl.style.color = 'var(--fail)';
+    statusEl.textContent = '❌ 保存失败：' + e.message;
+  }
+}
+
+// 返回当前已过滤的 session 列表（供 badge 刷新后重新渲染）
+function currentFilteredSessions() {
+  const month  = document.getElementById('monthFilter')?.value  || '';
+  const date   = document.getElementById('dateFilter')?.value   || '';
+  const shop   = document.getElementById('shopFilter')?.value   || '';
+  const agent  = document.getElementById('agentFilter')?.value  || '';
+  const pass   = document.getElementById('passFilter')?.value   || '';
+  return (QC_SESSIONS || []).filter(s => {
+    if (month  && s.month  !== month)  return false;
+    if (date   && s.date   !== date)   return false;
+    if (shop   && s.shop   !== shop)   return false;
+    if (agent  && s.agent  !== agent)  return false;
+    if (pass === 'pass' && !s.pass)    return false;
+    if (pass === 'fail' &&  s.pass)    return false;
+    return true;
+  });
 }
 
 function renderDetailTable(sessions) {
@@ -2589,7 +2908,8 @@ function renderDetailTable(sessions) {
       : '<span style="color:var(--fail);font-weight:600">❌ 不合格</span>';
     const dimTag = s.dim && s.dim !== '无扣分' && s.dim !== 'nan'
       ? `<span class="tag tag-dim1" style="font-size:11px">${esc(s.dim)}</span>` : '—';
-    const issue = s.issue && s.issue !== 'nan' ? esc(s.issue) : '—';
+    const issue    = s.issue    && s.issue    !== 'nan' ? esc(s.issue)    : '—';
+    const analysis = s.analysis && s.analysis !== 'nan' ? esc(s.analysis) : '—';
     const { badge: nickBadge } = getNicknameBadge(s.agent, s.nickname);
     return `<tr class="${rowCls}">
       <td style="color:var(--text2);font-size:12px">${i+1}</td>
@@ -2602,6 +2922,7 @@ function renderDetailTable(sessions) {
       <td>${passTag}</td>
       <td>${dimTag}</td>
       <td style="font-size:12px;color:#555;max-width:220px">${issue}</td>
+      <td style="font-size:12px;color:#555;max-width:220px">${analysis}</td>
     </tr>`;
   }).join('');
 }
@@ -2869,6 +3190,409 @@ function renderFocusAgents() {
     }).join('') + '</div>';
 }
 
+
+
+// ============================================================
+// 绩效排名 — 综合/高接待量/质量稳定/风险名单
+// ============================================================
+let _rankTab = 'overall';
+let _rankRowsCache = [];
+let _rankDuplicateCount = 0;
+let _rankScheduleData = {};
+const RANK_SCHEDULE_STORAGE_KEY = 'qms_rank_schedule_v1';
+
+function rankNum(v, def=0) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : def;
+}
+function rankPct(v, def=0) { return Math.max(0, Math.min(100, rankNum(v, def))); }
+function rankAmount(r) { return Math.round(rankNum(r.coef,0) * rankNum(r.base_salary, 1000)); }
+function rankGetTrialRecords() {
+  const mem = Array.isArray(window._kpiTrialRankRecords) ? window._kpiTrialRankRecords : null;
+  if (mem && mem.length) return mem;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('kpi_trial_rank_records') || '{}');
+    return Array.isArray(saved.records) ? saved.records : [];
+  } catch(e) { return []; }
+}
+function rankGetBaseRecords() {
+  const source = document.getElementById('rankSourceSel')?.value || 'saved';
+  return source === 'trial' ? rankGetTrialRecords() : (_perfRecords || []);
+}
+function rankIsTrial() { return (document.getElementById('rankSourceSel')?.value || 'saved') === 'trial'; }
+function rankNotePrefix() {
+  return rankIsTrial() ? '<b style="color:#E65100">【试算排名】</b> 当前榜单来自绩效计算预览，未保存到系统，不影响正式绩效结果；适合月中临时给老板查看。<br>' : '';
+}
+function rankReceptionRows(month, search='') {
+  const source=rankGetBaseRecords().filter(r=>r.role==='reception'&&(!month||r.month===month));
+  const unique=new Map();
+  let duplicates=0;
+  const completeness=r=>{
+    const d=r.detail_json||r.detail||{};
+    const shopCount=(d.shopDetail?.length||0)+(r.scores?.shop_details?.length||0);
+    const scoreCount=Object.values(r.scores||{}).filter(v=>v!==null&&v!==undefined&&v!=='').length;
+    return (rankExtractVolume(r)>0?1000000:0)+shopCount*1000+scoreCount;
+  };
+  source.forEach(r=>{
+    const name=kpiNormalizeName(String(r.name||'').trim());
+    const key=`${r.month||''}|${name}`;
+    const candidate={...r,name};
+    if (!unique.has(key)) unique.set(key,candidate);
+    else {
+      duplicates++;
+      if (completeness(candidate)>completeness(unique.get(key))) unique.set(key,candidate);
+    }
+  });
+  _rankDuplicateCount=duplicates;
+  return [...unique.values()].filter(r=>!search||String(r.name||'').includes(search));
+}
+function rankExtractVolume(r) {
+  const d = r.detail_json || r.detail || {};
+  const raw = d.totalVol ?? d.volume ?? d.totalVolume;
+  if (raw !== undefined && raw !== null && raw !== '') return rankNum(raw, 0);
+  const shops = d.shopDetail || [];
+  if (Array.isArray(shops) && shops.length) return shops.reduce((s,x)=>s+rankNum(x.volume,0),0);
+  const savedShops = r.scores?.shop_details || [];
+  if (Array.isArray(savedShops) && savedShops.length) return savedShops.reduce((s,x)=>s+rankNum(x.volume,0),0);
+  return 0;
+}
+function rankQualityScore(r) {
+  const s = r.scores || {};
+  const nonSat = rankPct(s.nonSat ?? 0);
+  const qc = rankPct(s.qc ?? 100);
+  const resp = rankPct(s.respTime ?? 100);
+  const r3 = rankPct(s.reply3m ?? 100);
+  return +(nonSat*0.35 + qc*0.30 + resp*0.15 + r3*0.20).toFixed(1);
+}
+function rankStableScore(r) {
+  const s = r.scores || {};
+  const vals = [s.nonSat, s.qc, s.respTime, s.reply3m].map(v => rankPct(v ?? 100));
+  const min = Math.min(...vals);
+  const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+  return +(min*0.55 + avg*0.45).toFixed(1);
+}
+function rankEfficiencyScore(r, avgVol) {
+  const vol = rankExtractVolume(r);
+  if (vol > 0 && avgVol > 0) return +Math.min(120, vol / avgVol * 100).toFixed(1);
+  return 0;
+}
+function rankNormalizeShift(v) {
+  const s=String(v??'').trim();
+  if (/^早/.test(s)) return '早';
+  if (/^中/.test(s)) return '中';
+  if (/^晚/.test(s)) return '晚';
+  return '';
+}
+function rankLoadScheduleStorage() {
+  try { _rankScheduleData=JSON.parse(localStorage.getItem(RANK_SCHEDULE_STORAGE_KEY)||'{}')||{}; }
+  catch(e) { _rankScheduleData={}; }
+}
+function rankMonthFromSheetName(name) {
+  const m=String(name||'').match(/^(20\d{2})(0[1-9]|1[0-2])$/);
+  return m?`${m[1]}-${m[2]}`:'';
+}
+function rankParseScheduleSheet(ws, month) {
+  const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  const people={};
+  for (let header=0;header<matrix.length-1;header++) {
+    if (String(matrix[header]?.[1]||'').trim()!=='日期') continue;
+    const days=matrix[header]||[];
+    let start=-1;
+    for (let c=2;c<days.length;c++) if (parseInt(days[c],10)===1) { start=c; break; }
+    if (start<0) continue;
+    const [year,mon]=month.split('-').map(Number);
+    const dayCount=new Date(year,mon,0).getDate();
+    const cols=Array.from({length:dayCount},(_,i)=>start+i);
+    const block=[];
+    for (let r=header+1;r<matrix.length;r++) {
+      if (r>header+1&&String(matrix[r]?.[1]||'').trim()==='日期') break;
+      const name=String(matrix[r]?.[0]||'').trim();
+      if (!name||['早','中','晚','日期','姓名','星期'].includes(name)) continue;
+      const shifts=cols.map(c=>rankNormalizeShift(matrix[r]?.[c]));
+      if (shifts.some(Boolean)) block.push({name:kpiNormalizeName(name),shifts});
+    }
+    if (!block.length) continue;
+    const concurrent=cols.map((_,idx)=>{
+      const cnt={早:0,中:0,晚:0};
+      block.forEach(p=>{const s=p.shifts[idx];if(s)cnt[s]++;});
+      return cnt;
+    });
+    block.forEach(p=>{
+      const counts={早:0,中:0,晚:0}; let concurrencyTotal=0,workDays=0;
+      p.shifts.forEach((s,idx)=>{if(!s)return;counts[s]++;workDays++;concurrencyTotal+=concurrent[idx][s]||1;});
+      const item={workDays,restDays:dayCount-workDays,earlyDays:counts.早,middleDays:counts.中,lateDays:counts.晚,avgConcurrent:workDays?+(concurrencyTotal/workDays).toFixed(2):0};
+      if (!people[p.name]||item.workDays>people[p.name].workDays) people[p.name]=item;
+    });
+  }
+  return people;
+}
+async function rankImportSchedule(file) {
+  if (!file) return;
+  const status=document.getElementById('rankScheduleStatus');
+  try {
+    status.textContent='解析排班表中…';
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellFormula:false,cellText:true});
+    const parsed={}; let peopleCount=0;
+    wb.SheetNames.forEach(name=>{
+      const month=rankMonthFromSheetName(name); if(!month)return;
+      const people=rankParseScheduleSheet(wb.Sheets[name],month);
+      if(Object.keys(people).length){parsed[month]=people;peopleCount+=Object.keys(people).length;}
+    });
+    if(!Object.keys(parsed).length) throw new Error('没有找到名称为YYYYMM的有效月份Sheet');
+    _rankScheduleData={..._rankScheduleData,...parsed};
+    localStorage.setItem(RANK_SCHEDULE_STORAGE_KEY,JSON.stringify(_rankScheduleData));
+    status.textContent=`已载入${Object.keys(parsed).length}个月排班`;
+    rankRender();
+    pfToast(`排班表解析完成：${Object.keys(parsed).length}个月、${peopleCount}人次`);
+  } catch(e) {
+    status.textContent='排班表解析失败';
+    pfToast('排班表解析失败：'+e.message,'error');
+  }
+}
+function rankScheduleFor(month,name) {
+  return _rankScheduleData?.[month]?.[kpiNormalizeName(String(name||'').trim())]||null;
+}
+function rankMedian(values) {
+  const a=values.filter(Number.isFinite).sort((x,y)=>x-y);
+  if (!a.length) return 0;
+  const m=Math.floor(a.length/2);
+  return a.length%2?a[m]:(a[m-1]+a[m])/2;
+}
+function rankLoadTier(volume, avgVol) {
+  if (!(volume>0&&avgVol>0)) return '数据不足';
+  return volume>=avgVol*1.2?'高负载':(volume<avgVol*0.8?'低负载':'正常负载');
+}
+function rankType(row) {
+  if (!row.eligible) return '数据不足';
+  if (row.redLine) return '质量红线型';
+  if (row.volumeTier === '高负载' && row.adjustedQuality >= 100) return '高贡献稳定型';
+  if (row.volumeTier === '高负载') return '超负荷风险型';
+  if (row.adjustedQuality >= 100 && row.volumeTier === '低负载') return '低负载高质量型';
+  if (row.adjustedQuality >= 100) return '质量稳定型';
+  return '待提升型';
+}
+function rankRiskText(r) {
+  const s = r.scores || {};
+  const risks = [];
+  if (rankPct(s.nonSat ?? 100) < 60) risks.push('非满/满意度达标率低于60%，触发质量红线');
+  if (rankPct(s.qc ?? 100) < 90) risks.push('质检合格率低于90%');
+  if (rankPct(s.respTime ?? 100) < 80) risks.push('响应时长达标率偏低');
+  if (rankPct(s.reply3m ?? 100) < 80) risks.push('3分钟回复达标率偏低');
+  if (rankNum(r.coef,0) === 0) risks.push('绩效系数为0');
+  return risks;
+}
+function rankBuildRows() {
+  const month = document.getElementById('rankMonthSel')?.value || '';
+  const search = (document.getElementById('rankSearch')?.value || '').trim();
+  // 基准始终由当月完整团队计算，搜索姓名不能改变任何人的得分。
+  const cohort = rankReceptionRows(month, '');
+  const vols = cohort.map(rankExtractVolume).filter(v => v > 0);
+  const avgVol = vols.length ? vols.reduce((a,b)=>a+b,0)/vols.length : 0;
+  const shrinkK = rankMedian(vols) || 1;
+  const scheduleRows=cohort.map(r=>rankScheduleFor(month,r.name)).filter(s=>s?.workDays>0&&s?.avgConcurrent>0);
+  const monthHasSchedule=Object.keys(_rankScheduleData?.[month]||{}).length>0;
+  const teamAvgConcurrent=scheduleRows.length?scheduleRows.reduce((a,s)=>a+s.avgConcurrent,0)/scheduleRows.length:0;
+  const baseRows=cohort.map(r=>{
+    const volume = rankExtractVolume(r);
+    const qualityScore = rankQualityScore(r);
+    const stableScore = rankStableScore(r);
+    const schedule=rankScheduleFor(month,r.name);
+    const hasSchedule=!!(schedule?.workDays>0&&schedule?.avgConcurrent>0&&teamAvgConcurrent>0);
+    const concurrencyFactor=hasSchedule?Math.max(0.8,Math.min(1.2,teamAvgConcurrent/schedule.avgConcurrent)):1;
+    const scheduleLoad=hasSchedule?volume/schedule.workDays*concurrencyFactor:(monthHasSchedule?0:volume);
+    const s = r.scores || {};
+    const redLine = rankPct(s.nonSat ?? 100) < 60;
+    return {r,volume,qualityScore,stableScore,s,redLine,schedule,hasSchedule,concurrencyFactor,scheduleLoad};
+  });
+  const loads=baseRows.filter(x=>x.volume>0&&x.scheduleLoad>0).map(x=>x.scheduleLoad);
+  const avgLoad=loads.length?loads.reduce((a,b)=>a+b,0)/loads.length:0;
+  baseRows.forEach(x=>{
+    x.efficiencyScore=x.scheduleLoad>0&&avgLoad>0?+Math.min(120,x.scheduleLoad/avgLoad*100).toFixed(1):0;
+    x.volumeTier=rankLoadTier(x.scheduleLoad,avgLoad);
+    x.eligible=x.volume>0&&avgLoad>0;
+  });
+  const teamMedian=rankMedian(baseRows.filter(y=>y.eligible).map(y=>y.qualityScore))||100;
+  const expectedByTier={};
+  ['低负载','正常负载','高负载'].forEach(t=>{
+    const peers=baseRows.filter(x=>x.eligible&&x.volumeTier===t).map(x=>x.qualityScore);
+    // 同档少于3人时回退到全团队中位数，避免单人用自己作为预期基准。
+    expectedByTier[t]=peers.length>=3?rankMedian(peers):teamMedian;
+  });
+  return baseRows.filter(x=>!search||String(x.r.name||'').includes(search)).map(x => {
+    const {r,volume,qualityScore,stableScore,efficiencyScore,s,redLine,volumeTier,eligible,schedule,hasSchedule,concurrencyFactor,scheduleLoad}=x;
+    const expectedQuality=eligible?(expectedByTier[volumeTier]||teamMedian):0;
+    const loadAdjusted=eligible?Math.max(80,Math.min(120,100*qualityScore/expectedQuality)):0;
+    const reliability=eligible?volume/(volume+shrinkK):0;
+    const adjustedQuality=eligible?+(reliability*loadAdjusted+(1-reliability)*100).toFixed(1):0;
+    const computed=eligible?+(adjustedQuality*0.70+efficiencyScore*0.30).toFixed(1):0;
+    const row = {
+      rec: r, name: r.name, month: r.month, group: r.group_name || '-',
+      volume, avgVol, volumeTier, qualityScore, stableScore, efficiencyScore,
+      schedule,hasSchedule,concurrencyFactor:+concurrencyFactor.toFixed(3),scheduleLoad:+scheduleLoad.toFixed(1),avgLoad:+avgLoad.toFixed(1),
+      expectedQuality:+expectedQuality.toFixed(1),loadAdjusted:+loadAdjusted.toFixed(1),reliability:+reliability.toFixed(3),adjustedQuality,
+      overallScore:redLine?Math.min(computed,59.9):computed,eligible,
+      coef: rankNum(r.coef,0), amount: rankAmount(r), redLine,
+      nonSat: rankPct(s.nonSat ?? 0), qc: rankPct(s.qc ?? 100), respTime: rankPct(s.respTime ?? 100), reply3m: rankPct(s.reply3m ?? 100),
+      risks: rankRiskText(r)
+    };
+    row.type = rankType(row);
+    return row;
+  });
+}
+function rankTag(text, kind='gray') { return `<span class="rank-tag tag-${kind}">${esc(text)}</span>`; }
+function rankNo(i) { return `<span class="rank-no ${i===0?'top1':i===1?'top2':i===2?'top3':''}">${i+1}</span>`; }
+function rankScoreCls(v) { return v >= 90 ? 'good' : (v >= 75 ? 'warn' : 'risk'); }
+function rankRenderSummary(rows) {
+  const eligible=rows.filter(r=>r.eligible);
+  const high = rows.filter(r => r.volumeTier === '高负载').length;
+  const stable = rows.filter(r => r.adjustedQuality >= 100 && !r.redLine).length;
+  const risk = rows.filter(r => r.risks.length).length;
+  const avg = eligible.length ? (eligible.reduce((s,r)=>s+r.overallScore,0)/eligible.length).toFixed(1) : '—';
+  const scheduled=rows.filter(r=>r.hasSchedule).length;
+  document.getElementById('rankSummary').innerHTML = `
+    <div class="rank-kpi"><div class="label">参与排名人数</div><div class="val">${eligible.length}</div><div class="sub">排班匹配${scheduled}/${rows.length}人${_rankDuplicateCount?` · 已合并${_rankDuplicateCount}条重复记录`:''}</div></div>
+    <div class="rank-kpi" style="border-top-color:#E65100"><div class="label">高负载人数</div><div class="val">${high}</div><div class="sub">≥当月平均接待量120%</div></div>
+    <div class="rank-kpi" style="border-top-color:#2E7D32"><div class="label">修正质量达预期</div><div class="val">${stable}</div><div class="sub">修正质量分≥100且无红线</div></div>
+    <div class="rank-kpi" style="border-top-color:#F44336"><div class="label">风险标记人数</div><div class="val">${risk}</div><div class="sub">含质量红线/质检/响应风险</div></div>
+    <div class="rank-kpi" style="border-top-color:#1565C0"><div class="label">平均修正综合分</div><div class="val">${avg}</div><div class="sub">修正质量70% + 工作量30%</div></div>`;
+}
+function rankRender() {
+  const rows = rankBuildRows();
+  _rankRowsCache = rows;
+  rankRenderSummary(rows);
+  const noteEl = document.getElementById('rankNote');
+  const content = document.getElementById('rankContent');
+  if (!rows.length) {
+    noteEl.innerHTML = rankIsTrial() ? '当前暂无试算排名数据。请先在「绩效结果」完成一次绩效计算，无需保存，然后回到本页选择“当前试算数据”。' : '当前月份暂无已保存的接待客服绩效数据。请先在「绩效结果」完成计算并保存。';
+    content.innerHTML = '<div class="rank-empty">暂无排名数据</div>';
+    return;
+  }
+  if (_rankTab === 'volume') return rankRenderVolume(rows);
+  if (_rankTab === 'quality') return rankRenderQuality(rows);
+  if (_rankTab === 'overall') return rankRenderOverall(rows);
+  if (_rankTab === 'risk') return rankRenderRisk(rows);
+}
+function rankRenderVolume(rows) {
+  document.getElementById('rankNote').innerHTML = rankNotePrefix() + '高接待量榜优先看人效贡献：按真实接待量排序，同时保留质量分和风险标签，避免只看数量。';
+  const sorted = [...rows].sort((a,b)=>b.volume-a.volume || b.qualityScore-a.qualityScore);
+  rankRenderTable(sorted, ['排名','客服','接待量','接待量层级','质量分','非满达标','质检','3分钟','绩效金额','人员类型','风险'], r => [
+    r.name, r.volume || '—', rankTag(r.volumeTier, r.volumeTier==='高负载'?'warn':r.volumeTier==='低负载'?'gray':'blue'),
+    `<span class="rank-score ${rankScoreCls(r.qualityScore)}">${r.qualityScore}</span>`, `${r.nonSat}%`, `${r.qc}%`, `${r.reply3m}%`, `¥${r.amount}`,
+    rankTag(r.type, r.redLine?'risk':r.type.includes('稳定')?'good':r.type.includes('风险')?'warn':'blue'), r.risks.length?rankTag('有风险','risk'):rankTag('正常','good')
+  ]);
+}
+function rankRenderQuality(rows) {
+  document.getElementById('rankNote').innerHTML = rankNotePrefix() + '质量稳定榜优先看服务稳定性：质量分结合非满、质检、响应和3分钟回复；稳定分会惩罚单项短板。';
+  const sorted = [...rows].sort((a,b)=>b.qualityScore-a.qualityScore || b.stableScore-a.stableScore || b.volume-a.volume);
+  rankRenderTable(sorted, ['排名','客服','质量分','稳定分','非满达标','质检','响应','3分钟','接待量','绩效金额','人员类型'], r => [
+    r.name, `<span class="rank-score ${rankScoreCls(r.qualityScore)}">${r.qualityScore}</span>`, `<span class="rank-score ${rankScoreCls(r.stableScore)}">${r.stableScore}</span>`,
+    `${r.nonSat}%`, `${r.qc}%`, `${r.respTime}%`, `${r.reply3m}%`, r.volume || '—', `¥${r.amount}`,
+    rankTag(r.type, r.redLine?'risk':r.type.includes('稳定')||r.type.includes('高质')?'good':r.type.includes('风险')?'warn':'blue')
+  ]);
+}
+function rankRenderOverall(rows) {
+  const scheduled=rows.filter(r=>r.hasSchedule).length;
+  document.getElementById('rankNote').innerHTML = rankNotePrefix() + `<b>负载修正排名 V2（影子试运行）</b>：修正负载=接待量÷有效上班天数×共时压力系数；共时压力系数=团队平均共时÷个人平均共时，并限制在0.8-1.2。已匹配排班 ${scheduled}/${rows.length} 人；该月已载入排班时，未匹配人员不参与修正排名。修正质量按同负载档团队中位数形成预期并做小样本收缩，综合分=修正质量70%+工作量30%；本榜单不改动历史绩效金额。`;
+  const sorted = [...rows].sort((a,b)=>Number(b.eligible)-Number(a.eligible)||b.overallScore-a.overallScore || b.volume-a.volume);
+  rankRenderTable(sorted, ['排名','客服','修正综合分','修正质量分','预期质量','原始质量','工作量分','接待量','上班天数','平均共时','修正日负载','负载类型','人员类型','风险'], r => [
+    r.name, r.eligible?`<span class="rank-score ${rankScoreCls(r.overallScore)}">${r.overallScore}</span>`:rankTag('数据不足','gray'), r.eligible?r.adjustedQuality:'—', r.eligible?r.expectedQuality:'—', r.qualityScore, r.eligible?r.efficiencyScore:'—',
+    r.volume || '—', r.hasSchedule?r.schedule.workDays:'—', r.hasSchedule?r.schedule.avgConcurrent:'—', r.hasSchedule?r.scheduleLoad:'—',
+    rankTag(r.volumeTier,r.volumeTier==='高负载'?'warn':r.volumeTier==='数据不足'?'gray':'blue'),
+    rankTag(r.type, r.redLine?'risk':r.type.includes('稳定')?'good':r.type.includes('风险')?'warn':'blue'), r.risks.length?rankTag('有风险','risk'):rankTag('正常','good')
+  ]);
+}
+function rankRenderRisk(rows) {
+  document.getElementById('rankNote').innerHTML = rankNotePrefix() + '风险名单用于复盘，不等于简单垫底：重点区分“高产但质量风险”和“低量低质”。';
+  const sorted = rows.filter(r=>r.risks.length).sort((a,b)=>b.volume-a.volume || a.qualityScore-b.qualityScore);
+  if (!sorted.length) { document.getElementById('rankContent').innerHTML = '<div class="rank-empty">当前月份暂无风险标记人员</div>'; return; }
+  rankRenderTable(sorted, ['排名','客服','风险原因','接待量','质量分','非满达标','质检','绩效金额','人员类型'], r => [
+    r.name, r.risks.map(x=>`<div style="text-align:left;margin:2px 0">${rankTag(x,'risk')}</div>`).join(''), r.volume || '—',
+    `<span class="rank-score ${rankScoreCls(r.qualityScore)}">${r.qualityScore}</span>`, `${r.nonSat}%`, `${r.qc}%`, `¥${r.amount}`,
+    rankTag(r.type, r.redLine?'risk':r.type.includes('风险')?'warn':'blue')
+  ]);
+}
+function rankRenderTable(rows, headers, cellFn) {
+  const body = rows.map((r,i)=>{
+    const cells = cellFn(r);
+    return `<tr><td>${rankNo(i)}</td><td class="name">${esc(cells[0])}</td>${cells.slice(1).map(c=>`<td>${c}</td>`).join('')}</tr>`;
+  }).join('');
+  document.getElementById('rankContent').innerHTML = `<table class="rank-table"><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function rankSwitch(tab) {
+  _rankTab = tab;
+  document.querySelectorAll('.rank-tab').forEach(t=>t.classList.toggle('active', t.dataset.rankTab===tab));
+  rankRender();
+}
+function rankRefreshMonthSel() {
+  const records = rankGetBaseRecords();
+  const months = [...new Set(records.map(r=>r.month).filter(Boolean))].sort().reverse();
+  const sel = document.getElementById('rankMonthSel');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = months.length ? months.map(m=>`<option value="${m}">${m}</option>`).join('') : '<option value="">暂无月份</option>';
+  if (cur && months.includes(cur)) sel.value = cur; else if (months.length) sel.value = months[0];
+}
+function rankMonthChanged() {
+  const month=document.getElementById('rankMonthSel')?.value||'';
+  const status=document.getElementById('rankScheduleStatus');
+  if(status) status.textContent=_rankScheduleData[month]?`${month}排班已载入`:'未载入该月排班';
+  rankRender();
+}
+async function initRankPage() {
+  rankLoadScheduleStorage();
+  if (!_perfInited || !_perfRecords.length) {
+    pfLoading(true);
+    _perfRecords = await dbLoad();
+    _perfInited = true;
+    pfLoading(false);
+  }
+  const sourceSel = document.getElementById('rankSourceSel');
+  if (sourceSel && rankGetTrialRecords().length && !sourceSel._userTouched) {
+    sourceSel.value = 'trial';
+  }
+  rankRefreshMonthSel();
+  const rankMonth=document.getElementById('rankMonthSel')?.value||'';
+  const scheduleStatus=document.getElementById('rankScheduleStatus');
+  if(scheduleStatus) scheduleStatus.textContent=_rankScheduleData[rankMonth]?`${rankMonth}排班已载入`:'未载入该月排班';
+  rankRender();
+}
+async function rankReload() {
+  if (rankIsTrial()) {
+    rankRefreshMonthSel();
+    rankRender();
+    pfToast('试算排名已刷新');
+    return;
+  }
+  pfLoading(true);
+  _perfRecords = await dbLoad();
+  _perfInited = true;
+  pfLoading(false);
+  rankRefreshMonthSel();
+  rankRender();
+  pfToast('排名数据已刷新');
+}
+function rankExportCSV() {
+  const rows = rankBuildRows();
+  if (!rows.length) { pfToast('暂无可导出数据','error'); return; }
+  let sorted = rows;
+  if (_rankTab === 'volume') sorted = [...rows].sort((a,b)=>b.volume-a.volume || b.qualityScore-a.qualityScore);
+  if (_rankTab === 'quality') sorted = [...rows].sort((a,b)=>b.qualityScore-a.qualityScore || b.stableScore-a.stableScore || b.volume-a.volume);
+  if (_rankTab === 'overall') sorted = [...rows].sort((a,b)=>b.overallScore-a.overallScore || b.amount-a.amount || b.volume-a.volume);
+  if (_rankTab === 'risk') sorted = rows.filter(r=>r.risks.length).sort((a,b)=>b.volume-a.volume || a.qualityScore-b.qualityScore);
+  const header = ['榜单','排名','月份','客服','接待量','有效上班天数','休息天数','早班天数','中班天数','晚班天数','平均共时人数','共时压力系数','修正日负载','负载类型','修正综合分','修正质量分','负载档预期质量','原始质量分','工作量分','样本可信度','非满达标率','质检合格率','响应达标率','3分钟达标率','绩效系数','绩效金额','人员类型','是否参与排名','风险原因'];
+  const titleMap = {volume:'高接待量榜',quality:'质量稳定榜',overall:'负载修正综合榜',risk:'风险名单'};
+  const lines = [header.join(',')];
+  sorted.forEach((r,i)=>lines.push([
+    titleMap[_rankTab]||'绩效排名', i+1, r.month, r.name, r.volume||'', r.schedule?.workDays??'', r.schedule?.restDays??'', r.schedule?.earlyDays??'', r.schedule?.middleDays??'', r.schedule?.lateDays??'', r.schedule?.avgConcurrent??'', r.hasSchedule?r.concurrencyFactor:'', r.scheduleLoad||'', r.volumeTier,
+    r.eligible?r.overallScore:'', r.eligible?r.adjustedQuality:'', r.eligible?r.expectedQuality:'', r.qualityScore, r.eligible?r.efficiencyScore:'', r.eligible?(r.reliability*100).toFixed(1)+'%':'', r.nonSat+'%', r.qc+'%', r.respTime+'%', r.reply3m+'%', (r.coef*100).toFixed(1)+'%', r.amount, r.type, r.eligible?'是':'否（缺接待量）', r.risks.join('；')
+  ].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')));
+  const blob = new Blob(['\ufeff'+lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const month = document.getElementById('rankMonthSel')?.value || 'all';
+  a.href = url; a.download = `${month}_${titleMap[_rankTab]||'绩效排名'}.csv`; a.click(); URL.revokeObjectURL(url);
+}
+
 // ============ Tab切换 ============
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -2879,8 +3603,14 @@ function switchTab(tab) {
   const page = document.getElementById('page-' + tab);
   if (page) page.classList.add('active');
   if (tab === 'perf') { initPerfPage(); kpiInitPage(); }
+  if (tab === 'rank') { initRankPage(); }
   if (tab === 'users') loadUsersPage();
   if (tab === 'roster') loadRosterPage();
+  if (tab === 'sop') {
+    // 管理员/主管显示编辑栏
+    const sopBar = document.getElementById('sopEditBar');
+    if (sopBar) sopBar.style.display = (['admin','supervisor'].includes(_currentRole)) ? 'flex' : 'none';
+  }
 }
 
 function switchShopflow(val) {
@@ -2903,6 +3633,7 @@ function switchScheme(val) {
 
 // ──── 绩效方案编辑 ────────────────────────────────────────────
 const _SCHEME_BLOCKS = ['reception','workorder','leader','common'];
+const _SCHEME_VERSION = 5; // 每次修改方案内容时递增，触发自动回写数据库
 let _schemeEditing = false;
 let _schemeBackup  = {};
 
@@ -2952,10 +3683,13 @@ async function saveSchemeEdit() {
   const btn = document.getElementById('schemeSaveBtn');
   btn.disabled = true; btn.textContent = '保存中...';
   try {
-    const upserts = _SCHEME_BLOCKS.map(id => {
-      const el = document.getElementById('scheme-' + id);
-      return { key: 'scheme_block_' + id, value: el ? el.innerHTML : '' };
-    });
+    const upserts = [
+      { key: 'scheme_version', value: String(_SCHEME_VERSION) },
+      ..._SCHEME_BLOCKS.map(id => {
+        const el = document.getElementById('scheme-' + id);
+        return { key: 'scheme_block_' + id, value: el ? el.innerHTML : '' };
+      })
+    ];
     const { error } = await _supa.from('app_config').upsert(upserts, { onConflict: 'key' });
     if (error) throw new Error(error.message);
     _schemeEditing = false;
@@ -2971,20 +3705,134 @@ async function saveSchemeEdit() {
 
 async function loadSchemeConfig() {
   try {
-    const keys = _SCHEME_BLOCKS.map(id => 'scheme_block_' + id);
-    const { data } = await _supa.from('app_config').select('key,value').in('key', keys);
+    const versionKey = 'scheme_version';
+    const blockKeys  = _SCHEME_BLOCKS.map(id => 'scheme_block_' + id);
+    const { data } = await _supa.from('app_config').select('key,value').in('key', [versionKey, ...blockKeys]);
     if (!data || data.length === 0) return;
-    for (const row of data) {
-      const id = row.key.replace('scheme_block_', '');
-      const el = document.getElementById('scheme-' + id);
-      if (el && row.value) el.innerHTML = DOMPurify.sanitize(row.value, {
-          ADD_ATTR: ['style','onclick'],
-          FORCE_BODY: true
-        });
+
+    const rowMap = {};
+    for (const r of data) rowMap[r.key] = r.value;
+
+    const dbVersion = parseInt(rowMap[versionKey] || '0');
+
+    // 数据库版本落后于代码版本 → 全部用静态 HTML，并把最新内容回写数据库
+    if (dbVersion < _SCHEME_VERSION) {
+      const upserts = [
+        { key: versionKey, value: String(_SCHEME_VERSION) },
+        ..._SCHEME_BLOCKS.map(id => {
+          const el = document.getElementById('scheme-' + id);
+          return { key: 'scheme_block_' + id, value: el ? el.innerHTML : '' };
+        })
+      ];
+      _supa.from('app_config').upsert(upserts, { onConflict: 'key' })
+        .then(() => console.log('[scheme] 方案已升级至 v' + _SCHEME_VERSION));
+      return; // 静态 HTML 已是正确内容，直接用
+    }
+
+    // 版本一致 → 正常从数据库恢复（用户自行编辑过的内容）
+    for (const id of _SCHEME_BLOCKS) {
+      const el  = document.getElementById('scheme-' + id);
+      const val = rowMap['scheme_block_' + id];
+      if (el && val) el.innerHTML = DOMPurify.sanitize(val, {
+        ADD_ATTR: ['style','onclick'],
+        FORCE_BODY: true
+      });
     }
   } catch(e) {
     console.warn('[loadSchemeConfig]', e.message);
   }
+}
+
+// ──── 质检SOP编辑 ────────────────────────────────────────────
+const _SOP_VERSION = 1; // 每次修改SOP静态内容时递增，触发自动回写数据库
+let _sopEditing = false;
+let _sopBackup  = '';
+
+function toggleSopEdit() {
+  _sopEditing = !_sopEditing;
+  const content = document.getElementById('sop-content');
+  const editBtn = document.getElementById('sopEditBtn');
+  const saveBtn = document.getElementById('sopSaveBtn');
+  const cancelBtn = document.getElementById('sopCancelBtn');
+  if (!content) return;
+  if (_sopEditing) {
+    _sopBackup = content.innerHTML;
+    content.contentEditable = 'true';
+    content.style.outline = '2px dashed #1565C0';
+    content.style.padding = '8px';
+    content.focus();
+    if (editBtn)   { editBtn.style.display = 'none'; }
+    if (saveBtn)   { saveBtn.style.display = ''; }
+    if (cancelBtn) { cancelBtn.style.display = ''; }
+  } else {
+    content.contentEditable = 'false';
+    content.style.outline = '';
+    content.style.padding = '';
+    if (editBtn)   { editBtn.style.display = ''; }
+    if (saveBtn)   { saveBtn.style.display = 'none'; }
+    if (cancelBtn) { cancelBtn.style.display = 'none'; }
+  }
+}
+
+async function saveSopEdit() {
+  const content = document.getElementById('sop-content');
+  const statusEl = document.getElementById('sopSaveStatus');
+  if (!content) return;
+  if (statusEl) { statusEl.textContent = '保存中…'; statusEl.style.color = '#888'; }
+  try {
+    const html = content.innerHTML;
+    const { error } = await _supa.from('app_config').upsert([
+      { key: 'sop_version', value: String(_SOP_VERSION) },
+      { key: 'sop_content', value: html }
+    ], { onConflict: 'key' });
+    if (error) throw new Error(error.message);
+    _sopBackup = html;
+    if (statusEl) { statusEl.textContent = '✓ 已保存'; statusEl.style.color = '#2e7d32'; }
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    toggleSopEdit();
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = '保存失败: ' + e.message; statusEl.style.color = '#c00'; }
+  }
+}
+
+function cancelSopEdit() {
+  const content = document.getElementById('sop-content');
+  if (content && _sopBackup) content.innerHTML = _sopBackup;
+  _sopEditing = true; // so toggleSopEdit flips it off
+  toggleSopEdit();
+}
+
+async function loadSopConfig() {
+  try {
+    const { data } = await _supa.from('app_config').select('key,value')
+      .in('key', ['sop_version', 'sop_content']);
+    if (!data || data.length === 0) return;
+    const rowMap = {};
+    for (const r of data) rowMap[r.key] = r.value;
+    const dbVersion = parseInt(rowMap['sop_version'] || '0');
+
+    // 代码版本更新 → 以静态HTML为准，回写数据库
+    if (dbVersion < _SOP_VERSION) {
+      const content = document.getElementById('sop-content');
+      const upserts = [
+        { key: 'sop_version', value: String(_SOP_VERSION) },
+        { key: 'sop_content', value: content ? content.innerHTML : '' }
+      ];
+      _supa.from('app_config').upsert(upserts, { onConflict: 'key' })
+        .then(() => console.log('[sop] SOP已升级至 v' + _SOP_VERSION));
+      return;
+    }
+
+    // 数据库版本=代码版本 → 加载数据库内容
+    if (rowMap['sop_content']) {
+      const content = document.getElementById('sop-content');
+      if (content) {
+        content.innerHTML = DOMPurify.sanitize(rowMap['sop_content'], {
+          ADD_ATTR: ['style','onclick'], FORCE_BODY: true
+        });
+      }
+    }
+  } catch(e) { console.warn('[loadSopConfig]', e.message); }
 }
 
 // ============================================================
@@ -3000,16 +3848,16 @@ const PERF_WEIGHTS = {
     { key:'reply3m',  label:'3分钟回复率达标率',weight:0.10, note:'≥99%' },
   ],
   workorder: [
-    { key:'procTime',  label:'售后处理时长达成率', weight:0.50, note:'每个店铺售后处理时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零' },
+    { key:'procTime',  label:'售后处理响应时长', weight:0.50, note:'每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零' },
     { key:'woVolume',  label:'工单量达标率',       weight:0.20, note:'工单创建量+完结量≥组内平均值80%，达标店铺数/总服务店铺数' },
     { key:'solveTime', label:'平均解决时间达标率',  weight:0.20, note:'≤96h（总时间÷解决数）' },
     { key:'assist',    label:'其他要求',            weight:0.10, note:'协助接待处理事项 + 群消息回复≤20min' },
   ],
   leader: [
-    { key:'teamNonSat',label:'团队非满意度达标率',    weight:0.30, note:'所有负责店铺达标率汇总，达标店铺/总服务店铺，≤60%整体清零' },
+    { key:'teamNonSat',label:'团队非满意度达标率',    weight:0.30, note:'所有负责店铺达标率汇总，达标店铺/总服务店铺' },
     { key:'respTime',  label:'平均响应时长达标率',    weight:0.25, note:'≤15s，店铺达标率要求100%' },
     { key:'reply3m',   label:'3分钟回复率达标率',     weight:0.10, note:'≥99%，店铺达标率要求100%' },
-    { key:'procTime',  label:'售后工单处理时长达成率', weight:0.25, note:'≥100分，店铺达标率要求100%' },
+    { key:'procTime',  label:'售后处理响应时长', weight:0.25, note:'≥90分，店铺达标率要求100%' },
     { key:'training',  label:'培训计划完成',          weight:0.10, note:'培训数量≥10次，≤5次为0分，按系数折算' },
   ]
 };
@@ -3033,9 +3881,9 @@ let _pfRole      = 'reception';
 function calcPerfCoef(scores, role, attend, should) {
   const weights = PERF_WEIGHTS[role] || [];
   const nonSatRate = parseFloat(scores.nonSat ?? scores.teamNonSat ?? 100);
-  // 非满≤60%整体清零
-  if ((role === 'reception' || role === 'leader') && nonSatRate <= 60) return 0;
-  // 工单：售后处理时长≤60%整体清零
+  // 接待客服：非满<60%整体清零（60%本身不清零；组长不适用此规则）
+  if (role === 'reception' && nonSatRate < 60) return 0;
+  // 工单：售后处理响应时长达标率≤60%整体清零
   if (role === 'workorder' && parseFloat(scores.procTime || 100) <= 60) return 0;
 
   let total = 0;
@@ -3060,9 +3908,11 @@ function calcPerfCoef(scores, role, attend, should) {
 
 // ── Supabase CRUD ──
 async function dbLoad() {
-  const { data, error } = await _supa.from('perf_records').select('*').order('month', { ascending: false });
+  const { data, error } = await _supa.from('perf_records')
+    .select('id,name,month,role,group_name,base_salary,scores,coef,detail_json')
+    .order('month', { ascending: false });
   if (error) { console.error('加载失败', error); return []; }
-  return data || [];
+  return (data || []).map(r => ({ ...r, detail_json: r.detail_json || null }));
 }
 async function dbSave(rec) {
   const payload = {
@@ -3108,8 +3958,13 @@ async function initPerfPage() {
   }
   pfRenderAll();
   pfRenderFields();
-  // 初始化月份选择器
+  // 刷新月份选择器，默认选中最新月份
   pfRefreshMonthSel();
+  const sel = document.getElementById('pfMonthSel');
+  if (sel && !sel.value && _perfRecords.length > 0) {
+    const latest = [...new Set(_perfRecords.map(r => r.month))].sort().reverse()[0];
+    if (latest) { sel.value = latest; pfRenderAll(); }
+  }
 }
 
 // ── 月份选择器 ──
@@ -3196,14 +4051,19 @@ function pfRenderCards(role, recs) {
         </div>`;
       }).join('');
 
-      return `<div class="agent-perf-card ${cls}">
+      const hasDetail = !!(r.detail_json || r.detail);
+      const detailKey = `pfDetail_${role}_${r.name.replace(/\s/g,'')}`;
+      return `<div class="agent-perf-card ${cls}" style="cursor:${hasDetail?'pointer':'default'}" onclick="${hasDetail?`pfToggleDetail('${detailKey}',this)`:''}">
         <div class="apc-header">
           <div class="apc-avatar" style="background:${color}">${r.name[0]}</div>
           <div>
             <div class="apc-name">${r.name}</div>
             <div class="apc-role">${r.month} · ${r.group_name||'-'}</div>
           </div>
-          <div class="apc-amount ${cls}">¥${amt}</div>
+          <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <div class="apc-amount ${cls}">¥${amt}</div>
+            ${hasDetail?'<div style="font-size:10px;color:#999">点击查看明细 ▼</div>':''}
+          </div>
         </div>
         <div class="apc-bar-wrap">
           <div class="apc-bar"><div class="apc-bar-fill" style="width:${pct}%;background:${coef>=0.99?'#4CAF50':coef>0?'#FF9800':'#F44336'}"></div></div>
@@ -3211,8 +4071,31 @@ function pfRenderCards(role, recs) {
         </div>
         <div class="apc-metrics">${metricsHtml}</div>
         ${coef===0 ? '<div style="margin-top:6px;font-size:11px;color:var(--fail);font-weight:600">⚠️ 本月整体清零</div>' : ''}
+        ${hasDetail ? `<div id="${detailKey}" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:12px;overflow-x:auto">${pfDetailHtml(r.detail_json||r.detail)}</div>` : ''}
       </div>`;
     }).join('');
+}
+
+// ── 卡片展开/收起 ──
+function pfToggleDetail(id, card) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  const hint = card.querySelector('[style*="点击查看明细"]');
+  if (hint) hint.textContent = isOpen ? '点击查看明细 ▼' : '收起明细 ▲';
+}
+
+// ── 从 detail_json 生成明细 HTML（复用 kpiDetailHtml 逻辑）──
+function pfDetailHtml(d) {
+  if (!d) return '<div style="color:#999;font-size:12px">无明细数据</div>';
+  // 包装成 kpiDetailHtml 期望的格式
+  const fakeRow = { detail: d };
+  // 提取 table 内容（去掉外层 <td>）
+  const raw = kpiDetailHtml(fakeRow);
+  // kpiDetailHtml 返回 <td>...</td>，提取内部内容
+  const m = raw.match(/^<td[^>]*>([\s\S]*)<\/td>$/);
+  return m ? m[1] : raw;
 }
 
 // ── 详情表格 ──
@@ -3293,6 +4176,7 @@ const NON_SAT_STD_MAP = {
   'a2 GENESIS海外旗舰店': 0.20, 'a2紫曜海外旗舰店': 0.20,
   '麦当劳官方旗舰店': 0.20, 'STOKKE官方旗舰店': 0.20,
   '怡宝官方旗舰店': 0.20,
+  '丽敷美官方旗舰店': 0.20, '丽敷美': 0.20,
 };
 
 function sdSyncFilters() {
@@ -3339,34 +4223,53 @@ function sdRender() {
     const details = r.scores?.shop_details || [];
     details.forEach(d => {
       const std = NON_SAT_STD_MAP[d.shop] || 0.20;
-      const nsOk = d.nonSat <= std;
-      const qcOk = d.qc >= 0.90;
+      const hasNs = d.nonSat !== null && d.nonSat !== undefined;
+      const hasQc = d.qc !== null && d.qc !== undefined;
+      const hasResp = d.resp !== null && d.resp !== undefined && d.resp !== '';
+      const hasR3 = d.reply3m !== null && d.reply3m !== undefined && d.reply3m !== '';
+      const nsOk = hasNs ? d.nonSat <= std : null;
+      const qcOk = hasQc ? d.qc >= 0.90 : null;
+      const respOk = hasResp ? Number(d.resp) <= 15 : null;
+      const r3Ok = hasR3 ? Number(d.reply3m) >= 0.99 : null;
       allShops.push({ ...d, name: r.name, month: r.month, role: r.role,
-        group: r.group_name, coef: r.coef, std, nsOk, qcOk });
+        group: r.group_name, coef: r.coef, std, nsOk, qcOk, respOk, r3Ok });
     });
   });
 
   // 结果筛选
-  if (resultFilter === 'bad')  allShops = allShops.filter(s => !s.nsOk || !s.qcOk);
-  if (resultFilter === 'ok')   allShops = allShops.filter(s => s.nsOk && s.qcOk);
+  const shopHasBad = s => [s.nsOk, s.qcOk, s.respOk, s.r3Ok].some(v => v === false);
+  const shopAllOk = s => [s.nsOk, s.qcOk, s.respOk, s.r3Ok].filter(v => v !== null).every(v => v === true);
+  if (resultFilter === 'bad')  allShops = allShops.filter(shopHasBad);
+  if (resultFilter === 'ok')   allShops = allShops.filter(shopAllOk);
 
   // 汇总卡片
   const totalShops = allShops.length;
-  const badNs  = allShops.filter(s => !s.nsOk).length;
-  const badQc  = allShops.filter(s => !s.qcOk).length;
-  const okAll  = allShops.filter(s => s.nsOk && s.qcOk).length;
+  const badNs  = allShops.filter(s => s.nsOk === false).length;
+  const badQc  = allShops.filter(s => s.qcOk === false).length;
+  const badR3  = allShops.filter(s => s.r3Ok === false).length;
+  const okAll  = allShops.filter(shopAllOk).length;
   document.getElementById('sdSummaryCards').innerHTML = `
     <div class="shop-sum-card"><div class="shop-sum-label">店铺总条数</div><div class="shop-sum-val">${totalShops}</div></div>
     <div class="shop-sum-card"><div class="shop-sum-label">非满超标店铺</div><div class="shop-sum-val" style="color:var(--fail)">${badNs}</div></div>
     <div class="shop-sum-card"><div class="shop-sum-label">质检未达标店铺</div><div class="shop-sum-val" style="color:var(--warn)">${badQc}</div></div>
+    <div class="shop-sum-card"><div class="shop-sum-label">3分钟未达标店铺</div><div class="shop-sum-val" style="color:var(--warn)">${badR3}</div></div>
     <div class="shop-sum-card"><div class="shop-sum-label">全部达标店铺</div><div class="shop-sum-val" style="color:var(--pass)">${okAll}</div></div>
     <div class="shop-sum-card"><div class="shop-sum-label">非满达标率</div><div class="shop-sum-val" style="color:${badNs===0?'var(--pass)':'var(--fail)'}">${totalShops?((totalShops-badNs)/totalShops*100).toFixed(1)+'%':'—'}</div></div>`;
 
   document.getElementById('sdCount').textContent = `共 ${totalShops} 条`;
 
   if (!allShops.length) {
+    const mf = document.getElementById('sdMonthSel')?.value || '';
     document.getElementById('sdTableBody').innerHTML =
-      `<tr><td colspan="8" class="empty-state"><div class="empty-state-icon">📭</div><p>暂无店铺明细数据<br><small>录入绩效时请填写店铺明细</small></p></td></tr>`;
+      `<tr><td colspan="12" class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <p>暂无店铺明细数据</p>
+        <button onclick="backfillShopDetailsFromQC('${mf}')"
+          style="margin-top:8px;padding:8px 18px;background:#1565C0;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+          🔄 从质检数据重建店铺明细
+        </button>
+        <div style="font-size:11px;color:#999;margin-top:6px">质检合格率来自已同步的质检记录（非满率需重新上传绩效文件才有）</div>
+      </td></tr>`;
     return;
   }
 
@@ -3382,9 +4285,9 @@ function sdRender() {
   Object.values(byAgent).forEach(agent => {
     const coef = parseFloat(agent.coef || 0);
     const coefColor = coef >= 0.99 ? 'var(--pass)' : coef > 0 ? 'var(--warn)' : 'var(--fail)';
-    const badCnt = agent.shops.filter(s => !s.nsOk || !s.qcOk).length;
+    const badCnt = agent.shops.filter(shopHasBad).length;
     html += `<tr>
-      <td colspan="8" style="padding:0">
+      <td colspan="12" style="padding:0">
         <div class="shop-group-header">
           <div style="width:36px;height:36px;border-radius:50%;background:${coef>=0.99?'#4CAF50':coef>0?'#FF9800':'#F44336'};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:15px;flex-shrink:0">${agent.name[0]}</div>
           <div>
@@ -3396,20 +4299,37 @@ function sdRender() {
       </td>
     </tr>`;
     agent.shops.forEach(s => {
-      const rowCls = (!s.nsOk || !s.qcOk) ? 'shop-row-bad' : 'shop-row-ok';
+      const hasNs = s.nonSat !== null && s.nonSat !== undefined;
+      const nsOk  = hasNs ? s.nonSat <= s.std : null;
+      const qcOk  = s.qcOk;
+      const respOk = s.respOk;
+      const r3Ok = s.r3Ok;
+      const rowCls = shopHasBad(s) ? 'shop-row-bad' : 'shop-row-ok';
+      const hasResp = s.resp !== null && s.resp !== undefined && s.resp !== '';
+      const hasR3 = s.reply3m !== null && s.reply3m !== undefined && s.reply3m !== '';
+      const nsVal  = hasNs ? `${(s.nonSat*100).toFixed(1)}%` : '—';
+      const respVal = hasResp ? `${Number(s.resp).toFixed(0)}s` : '—';
+      const r3Val = hasR3 ? `${(Number(s.reply3m)*100).toFixed(2)}%` : '—';
+      const nsTag  = nsOk === null ? '<span style="color:#999">—</span>'
+                   : nsOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>'
+                           : '<span style="color:var(--fail);font-weight:700">❌ 超标</span>';
       html += `<tr class="${rowCls}">
         <td style="color:var(--text2);font-size:12px"></td>
         <td style="font-weight:500">${s.shop}</td>
-        <td class="${s.nsOk?'ns-val-ok':'ns-val-bad'}">${(s.nonSat*100).toFixed(1)}%</td>
+        <td class="${nsOk===false?'ns-val-bad':hasNs?'ns-val-ok':''}">${nsVal}</td>
         <td style="color:var(--text2)">≤${(s.std*100).toFixed(0)}%</td>
-        <td>${s.nsOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 超标</span>'}</td>
-        <td class="${s.qcOk?'ns-val-ok':'ns-val-bad'}">${(s.qc*100).toFixed(0)}%</td>
-        <td>${s.qcOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 未达标</span>'}</td>
-        <td style="text-align:right">${(s.volume||0).toLocaleString()}</td>
+        <td>${nsTag}</td>
+        <td class="${qcOk===false?'ns-val-bad':qcOk===true?'ns-val-ok':''}">${s.qc!==null&&s.qc!==undefined?(s.qc*100).toFixed(0)+'%':'—'}</td>
+        <td>${qcOk === null ? '<span style="color:#999">—</span>' : qcOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 未达标</span>'}</td>
+        <td class="${respOk===false?'ns-val-bad':respOk===true?'ns-val-ok':''}">${respVal}</td>
+        <td>${respOk === null ? '<span style="color:#999">—</span>' : respOk ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 未达标</span>'}</td>
+        <td class="${r3Ok===false?'ns-val-bad':r3Ok===true?'ns-val-ok':''}">${r3Val}</td>
+        <td>${r3Ok === null ? '<span style="color:#999">—</span>' : r3Ok ? '<span style="color:var(--pass);font-weight:700">✅ 达标</span>' : '<span style="color:var(--fail);font-weight:700">❌ 未达标</span>'}</td>
+        <td style="text-align:right">${s.volume!=null?s.volume.toLocaleString():'—'}</td>
       </tr>`;
     });
     // 分隔行
-    html += `<tr><td colspan="8" style="padding:4px;background:#f5f5f5;border:none"></td></tr>`;
+    html += `<tr><td colspan="12" style="padding:4px;background:#f5f5f5;border:none"></td></tr>`;
   });
 
   document.getElementById('sdTableBody').innerHTML = html;
@@ -3418,16 +4338,20 @@ function sdRender() {
 function sdExportCSV() {
   const recs = sdGetFiltered();
   if (!recs.length) { pfToast('暂无店铺明细数据', 'error'); return; }
-  const rows = [['月份','姓名','所属组','店铺','非满实际','非满标准','非满结果','质检合格率','质检结果','接待量']];
+  const rows = [['月份','姓名','所属组','店铺','非满实际','非满标准','非满结果','质检合格率','质检结果','响应时长','响应结果','3分钟回复率','3分钟结果','接待量']];
   recs.forEach(r => {
     (r.scores?.shop_details || []).forEach(d => {
       const std = NON_SAT_STD_MAP[d.shop] || 0.20;
       rows.push([r.month, r.name, r.group_name||'',
         d.shop,
-        (d.nonSat*100).toFixed(1)+'%', (std*100).toFixed(0)+'%',
-        d.nonSat <= std ? '达标' : '超标',
-        (d.qc*100).toFixed(0)+'%',
-        d.qc >= 0.90 ? '达标' : '未达标',
+        d.nonSat!=null ? (d.nonSat*100).toFixed(1)+'%' : '—', (std*100).toFixed(0)+'%',
+        d.nonSat==null ? '—' : (d.nonSat <= std ? '达标' : '超标'),
+        d.qc!=null ? (d.qc*100).toFixed(0)+'%' : '—',
+        d.qc==null ? '—' : (d.qc >= 0.90 ? '达标' : '未达标'),
+        d.resp!=null ? Number(d.resp).toFixed(0)+'s' : '—',
+        d.resp==null ? '—' : (Number(d.resp) <= 15 ? '达标' : '未达标'),
+        d.reply3m!=null ? (Number(d.reply3m)*100).toFixed(2)+'%' : '—',
+        d.reply3m==null ? '—' : (Number(d.reply3m) >= 0.99 ? '达标' : '未达标'),
         d.volume || 0]);
     });
   });
@@ -3436,6 +4360,79 @@ function sdExportCSV() {
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
   a.download = `店铺明细_${document.getElementById('sdMonthSel')?.value||'全部'}.csv`;
   a.click();
+}
+
+// ── 从质检记录重建店铺明细 ──
+async function backfillShopDetailsFromQC(month) {
+  if (!month) {
+    month = document.getElementById('pfMonthSel')?.value || '';
+  }
+  if (!month) { pfToast('请先选择月份', 'error'); return; }
+
+  pfToast('⏳ 重建中，请稍候…');
+
+  try {
+    // ① 读取该月质检记录（分页）
+    const PAGE = 1000; let qcAll = [], from = 0;
+    while (true) {
+      const { data, error } = await _supa.from('qc_records')
+        .select('agent, shop, pass').eq('month', month)
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      qcAll = qcAll.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+
+    if (!qcAll.length) { pfToast('该月无质检记录', 'error'); return; }
+
+    // ② 按 agent+shop 统计合格数
+    const qcByAgent = {};
+    for (const r of qcAll) {
+      if (!r.agent || !r.shop) continue;
+      const agent = kpiNormalizeName(r.agent);
+      const key = kpiShopKey(r.shop);
+      if (!qcByAgent[agent]) qcByAgent[agent] = {};
+      if (!qcByAgent[agent][key]) qcByAgent[agent][key] = { shop: r.shop, pass: 0, total: 0 };
+      qcByAgent[agent][key].total++;
+      if (r.pass) qcByAgent[agent][key].pass++;
+    }
+
+    // ③ 读取该月接待客服绩效记录
+    const { data: perfData, error: pe } = await _supa.from('perf_records')
+      .select('id, name, scores').eq('month', month).eq('role', 'reception');
+    if (pe) throw pe;
+    if (!perfData?.length) { pfToast('该月无接待客服绩效记录', 'error'); return; }
+
+    // ④ 为每人构建 shop_details 并写回
+    let updated = 0;
+    for (const perf of perfData) {
+      const agentQC = qcByAgent[kpiNormalizeName(perf.name)] || {};
+      const oldDetails = Array.isArray(perf.scores?.shop_details) ? perf.scores.shop_details : [];
+      let shop_details = oldDetails.map(od => {
+        const q = agentQC[kpiShopKey(od.shop)];
+        return { ...od, qc: q ? (q.total > 0 ? q.pass / q.total : null) : (od.qc ?? null) };
+      });
+      const existingKeys = new Set(shop_details.map(d => kpiShopKey(d.shop)));
+      Object.values(agentQC).forEach(d => {
+        const key = kpiShopKey(d.shop);
+        if (!existingKeys.has(key)) shop_details.push({ shop: d.shop, nonSat: null, qc: d.total > 0 ? d.pass / d.total : null, resp: null, reply3m: null, volume: null });
+      });
+      if (!shop_details.length) continue;
+      const newScores = { ...(perf.scores || {}), shop_details };
+      const { error } = await _supa.from('perf_records')
+        .update({ scores: newScores }).eq('id', perf.id);
+      if (!error) updated++;
+    }
+
+    pfToast(`✅ 已重建 ${updated} 人的店铺质检明细`);
+    _perfRecords = await dbLoad();
+    pfRenderAll();
+    pfSwitchRole('shopdetail');
+
+  } catch(e) {
+    pfToast('❌ 重建失败：' + e.message, 'error');
+  }
 }
 
 // ── 表单 ──
@@ -3590,8 +4587,8 @@ function pfExportCSV() {
 
 // 角色对应可见 tab
 const ROLE_TABS = {
-  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf','roster','users'],
-  supervisor: ['dashboard','detail','agent','sop','shopflow','scheme','roster'],
+  admin:      ['dashboard','detail','agent','sop','shopflow','scheme','perf','rank','roster','users'],
+  supervisor: ['dashboard','detail','agent','sop','shopflow','scheme','perf','rank','roster'],
   agent:      ['dashboard','detail','agent','sop','shopflow','roster']
 };
 
@@ -3667,10 +4664,27 @@ async function onLoginSuccess(user) {
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('userInfoBar').style.display = 'flex';
 
-  // 优先从 qc_records 加载质检数据（后台静默执行，不阻塞登录流程）
-  loadFromQcRecords().catch(e => console.warn('qc_records 加载失败:', e.message));
+  // 清空旧静态数据，避免显示 data.js 中的过期数字
+  QC_SESSIONS.splice(0);
+  BAD_SESSIONS.splice(0);
+  AGENT_QC.splice(0);
+  SHOP_QC.splice(0);
+  ALL_SHOPS.splice(0);
+  Object.assign(QC_SUMMARY, { total: 0, passCnt: 0, failCnt: 0, passRate: 0 });
+
+  // 先用"加载中"状态渲染空页面，再异步加载真实数据
+  renderDashboard();
+  _showDashboardLoading(true);
+
+  // 先加载名册，再渲染质检数据（确保 DB 昵称已合并后再显示 badge）
+  refreshQcRosterFromDB()
+    .then(() => loadFromQcRecords())
+    .finally(() => _showDashboardLoading(false))
+    .catch(e => console.warn('质检初始化失败:', e.message));
   // 加载绩效方案自定义内容
   loadSchemeConfig().catch(e => console.warn('loadSchemeConfig 失败:', e.message));
+  // 加载质检SOP自定义内容
+  loadSopConfig().catch(e => console.warn('loadSopConfig 失败:', e.message));
 }
 
 // ──── 登出 ────
@@ -3745,6 +4759,11 @@ function applyPermissions(role) {
 
 // ──── 检测已有 session（刷新页面不用重新登录）────
 async function checkExistingSession() {
+  const localTest = ['localhost', '127.0.0.1', '::1'].includes(location.hostname) && new URLSearchParams(location.search).get('test') === '1';
+  if (localTest) {
+    document.getElementById('loginOverlay').style.display = 'none';
+    return;
+  }
   const { data: { session } } = await _supa.auth.getSession();
   if (session && session.user) {
     await onLoginSuccess(session.user);
@@ -4153,6 +5172,112 @@ function shouldExcludeAgent(name) {
   return QC_EXCLUDE.some(kw => name.includes(kw));
 }
 
+// ──── CSV导入日期/月份规范化：支持 2026-04-01、2026/4/1、2026年4月1日、4月1日 + 月份列 ────
+function normalizeQcMonthFromText(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})[-\/年](\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}`;
+  return '';
+}
+
+function normalizeQcDateValue(rawDate, rawMonth) {
+  if (rawDate === null || rawDate === undefined || rawDate === '') return '';
+  const s = String(rawDate).trim();
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  m = s.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  // 飞书导出经常是 “4月1日”，年份从“月份”列拿
+  m = s.match(/^(\d{1,2})月(\d{1,2})日?/);
+  if (m) {
+    const ym = normalizeQcMonthFromText(rawMonth);
+    if (ym) return `${ym.split('-')[0]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  }
+  // Excel 序列号
+  const n = parseFloat(s);
+  if (!isNaN(n) && n > 40000 && n < 60000) {
+    const dt = new Date(Math.round((n - 25569) * 86400 * 1000));
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+async function fetchQcMonths() {
+  const { data, error } = await _supa
+    .from('qc_records')
+    .select('month')
+    .order('month', { ascending: false })
+    .limit(10000);
+  if (error) throw error;
+  return [...new Set((data || []).map(r => r.month).filter(Boolean))].sort().reverse();
+}
+
+async function upsertQcSessionsToDB(sessions) {
+  const rawRecords = sessions.map((s, idx) => ({
+    session_id:  String(s.id || '').trim(),
+    date:        s.date,
+    month:       s.month,
+    shop:        s.shop || '',
+    agent:       s.agent || '',
+    nickname:    s.nickname || '',
+    scenario:    s.scenario || '',
+    dim:         s.dim || '',
+    deduct:      Number(s.deduct || 0),
+    issue:       s.issue || '',
+    responsible: s.responsible || '',
+    tip:         s.tip || '',
+    analysis:    s.analysis || '',
+    pass:        !!s.pass,
+    _row:        idx + 1
+  })).filter(r => r.session_id && r.date && r.month && r.agent);
+
+  // Supabase/Postgres 的 upsert 批量数据中，不能在同一批里出现重复 session_id，
+  // 否则会报：ON CONFLICT DO UPDATE command cannot affect row a second time。
+  // 飞书/CSV 中同一个会话可能在两张表或同一表重复导出，这里先按 session_id 去重。
+  const recordMap = new Map();
+  const duplicateSessionIds = new Set();
+  for (const r of rawRecords) {
+    if (recordMap.has(r.session_id)) duplicateSessionIds.add(r.session_id);
+    recordMap.set(r.session_id, r); // 保留后出现的记录，通常是最新/更完整的一条
+  }
+  const records = Array.from(recordMap.values()).map(({ _row, ...r }) => r);
+
+  if (!records.length) throw new Error('没有可写入数据库的有效记录');
+
+  // 单次写入数据量不能太大，否则浏览器/Supabase 偶发 Failed to fetch。
+  // 改成小批量 + 自动重试：已经成功写入的批次再次导入也会被 upsert 覆盖，不会重复。
+  const BATCH = 80;
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  let saved = 0;
+  for (let i = 0; i < records.length; i += BATCH) {
+    const batch = records.slice(i, i + BATCH);
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { error } = await _supa
+        .from('qc_records')
+        .upsert(batch, { onConflict: 'session_id', ignoreDuplicates: false });
+      if (!error) { lastErr = null; break; }
+      lastErr = error;
+      await sleep(700 * attempt);
+    }
+    if (lastErr) {
+      throw new Error(`写入数据库失败（第 ${i+1}-${i+batch.length} 条，小批量写入已重试3次，已自动去重 ${duplicateSessionIds.size} 个重复会话）：${lastErr.message || lastErr}`);
+    }
+    saved += batch.length;
+    const statusEl = document.getElementById('qcStatus');
+    if (statusEl) {
+      statusEl.className = 'status-msg status-ok';
+      statusEl.textContent = `⏳ 正在写入数据库：${saved}/${records.length} 条...`;
+    }
+  }
+  const nowIso = new Date().toISOString();
+  await _supa.from('app_config').upsert({ key: 'last_csv_import_at', value: nowIso }, { onConflict: 'key' });
+  return saved;
+}
+
 // ──── 文件选择 ────
 function onQcFileSelected(input) {
   const files = Array.from(input.files);
@@ -4198,47 +5323,76 @@ async function parseQCFiles(files) {
 
   for (const file of files) {
     const text = await file.text();
-    const result = Papa.parse(text, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() });
+    const result = Papa.parse(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: h => String(h || '').trim()
+    });
     const cols = result.meta.fields || [];
     const missing = REQUIRED.filter(c => !cols.includes(c));
     if (missing.length) {
-      throw new Error(`「${file.name}」格式不符，请使用飞鸽导出的质检表（缺少列：${missing.join('、')}）`);
+      throw new Error(`「${file.name}」格式不符，请使用飞书导出的质检表（缺少列：${missing.join('、')}）`);
     }
     allRows.push(...result.data);
   }
 
-  const sessions = [];
-  for (const row of allRows) {
-    const agent = (row['客服真实姓名'] || '').trim();
-    if (shouldExcludeAgent(agent)) continue;
+  const getFirst = (row, ...names) => {
+    for (const name of names) {
+      const v = row[name];
+      if (v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim().toLowerCase() !== 'nan') {
+        return String(v).trim();
+      }
+    }
+    return '';
+  };
 
-    const deductRaw = row['扣分值【1-100】'] || row['扣分值'] || '0';
+  const sessions = [];
+  const skipped = { date: 0, agent: 0, session: 0 };
+  for (const row of allRows) {
+    const agentRaw = getFirst(row, '客服真实姓名');
+    const agent = (typeof NAME_NORMALIZE !== 'undefined' && NAME_NORMALIZE[agentRaw]) ? NAME_NORMALIZE[agentRaw] : agentRaw;
+    if (shouldExcludeAgent(agent)) { skipped.agent++; continue; }
+
+    const sessionId = getFirst(row, '会话ID');
+    if (!sessionId) { skipped.session++; continue; }
+
+    const date = normalizeQcDateValue(getFirst(row, '日期'), getFirst(row, '月份'));
+    if (!date) { skipped.date++; continue; }
+    const month = date.slice(0, 7);
+
+    const deductRaw = getFirst(row, '扣分值【1-100】', '扣分值') || '0';
     const deduct = parseFloat(deductRaw) || 0;
-    const dim = (row['扣分维度'] || '').trim();
+    const dim = getFirst(row, '扣分维度');
     const isPass = deduct === 0 || dim === '无扣分' || dim === '';
 
-    const rawShop = (row['店铺'] || '').trim();
+    const rawShop = getFirst(row, '店铺');
     const shop = UPLOAD_SHOP_MAP[rawShop] || SHOP_NAME_MAP[rawShop] || rawShop;
-
-    const date = (row['日期'] || '').trim();
-    const month = date.slice(0, 7);
 
     sessions.push({
       month, date, shop,
-      id:          (row['会话ID'] || '').trim(),
+      id:          sessionId,
       agent,
-      nickname:    (row['客服昵称'] || '').trim(),
-      scenario:    (row['会话问题分类'] || '').trim(),
+      nickname:    getFirst(row, '客服昵称'),
+      scenario:    getFirst(row, '会话问题分类'),
       dim, deduct,
-      issue:       (row['此对话中客服问题点'] || '').trim(),
-      responsible: (row['责任方'] || '').trim(),
-      tip:         (row['话术优化点'] || '').trim(),
+      issue:       getFirst(row, '问题描述', '此对话中客服问题点'),
+      responsible: getFirst(row, '责任方'),
+      tip:         getFirst(row, '话术优化点', '改进建议'),
+      analysis:    getFirst(row, '问题解析&改进', '问题解析', '问题解析改进'),
       pass:        isPass,
       type:        '',
     });
   }
 
-  if (!sessions.length) throw new Error('未找到有效质检记录（所有记录均在排除名单中）');
+  if (!sessions.length) {
+    throw new Error(`未找到有效质检记录。跳过：日期无法解析 ${skipped.date} 条，客服为空 ${skipped.agent} 条，会话ID为空 ${skipped.session} 条`);
+  }
+
+  const months = [...new Set(sessions.map(s => s.month))].sort();
+  if (months.length > 1) {
+    const ok = confirm(`本次CSV包含多个数据月份：${months.join('、')}。确认继续导入吗？`);
+    if (!ok) throw new Error('已取消导入');
+  }
   return sessions;
 }
 
@@ -4318,42 +5472,35 @@ function closeQcPreview() {
 }
 
 // ──── 确认更新所有数据 ────
-function confirmQcUpdate() {
+async function confirmQcUpdate() {
   if (!_pendingQcData) return;
   const { sessions, stats } = _pendingQcData;
   const { total, passCnt, failCnt, passRate, agentQC, shopQC, allShops, badSessions, issueFreq, dimFreq, month } = stats;
 
-  // 更新全局变量（in-place mutation）
-  Object.assign(QC_SUMMARY, { total, passCnt, failCnt, passRate });
-  QC_SESSIONS.splice(0, QC_SESSIONS.length, ...sessions);
-  BAD_SESSIONS.splice(0, BAD_SESSIONS.length, ...badSessions);
-  AGENT_QC.splice(0, AGENT_QC.length, ...agentQC);
-  SHOP_QC.splice(0, SHOP_QC.length, ...shopQC);
-  ALL_SHOPS.splice(0, ALL_SHOPS.length, ...allShops);
-  Object.keys(ISSUE_FREQ).forEach(k => delete ISSUE_FREQ[k]);
-  Object.assign(ISSUE_FREQ, issueFreq);
-  Object.keys(DIM_FREQ).forEach(k => delete DIM_FREQ[k]);
-  Object.assign(DIM_FREQ, dimFreq);
-  QC_CONFIG.month = month;
+  const btn = document.getElementById('btnQcConfirm');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 写入数据库中...'; }
 
-  const now = new Date();
-  const ts = `${now.getMonth()+1}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  QC_CONFIG.lastUpdated = ts + '（本次上传）';
-  document.getElementById('lastUpdateTime').textContent = QC_CONFIG.lastUpdated;
+  try {
+    const saved = await upsertQcSessionsToDB(sessions);
 
-  // 重新渲染所有模块
-  renderDashboard();
-  initDetailPage();
-  initAgentPage();
+    // 写入成功后，优先从数据库重新加载本次CSV月份，确保质检概览/明细/汇总/绩效联动都来自同一份持久化数据
+    await loadFromQcRecords(month);
+    await initQcMonthBar();
 
-  closeQcPreview();
-  setQcStatus('ok', `✅ 已更新：${total} 条记录，${agentQC.length} 名客服，合格率 ${passRate}%`);
+    const months = await fetchQcMonths();
+    closeQcPreview();
+    setQcStatus('ok', `✅ CSV已写入数据库：${saved} 条；本次月份 ${month}；数据库月份：${months.join('、')}`);
 
-  // 重置文件输入
-  document.getElementById('qcFileInput').value = '';
-  document.getElementById('qcSelectedFiles').textContent = '';
-  document.getElementById('qcUploadBtn').disabled = true;
-  _pendingQcData = null;
+    // 重置文件输入
+    document.getElementById('qcFileInput').value = '';
+    document.getElementById('qcSelectedFiles').textContent = '';
+    document.getElementById('qcUploadBtn').disabled = true;
+    _pendingQcData = null;
+  } catch(e) {
+    setQcStatus('err', '❌ 写入失败：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ 确认写入数据库'; }
+  }
 }
 
 function setQcStatus(type, msg) {
@@ -4390,13 +5537,21 @@ async function syncFeishu() {
 
     if (!result.ok) throw new Error(result.error || '同步失败');
 
+    const afterMonths = await fetchQcMonths().catch(() => []);
     const sheetInfo = (result.sheets || []).map(s => `${s.sheet}(${s.parsed}条)`).join('、');
+    const startMonth = normalizeQcMonthFromText(result.start_date || document.getElementById('syncStartDateInput')?.value || '');
+    const monthMsg = afterMonths.length ? `数据库月份：${afterMonths.join('、')}` : '数据库暂无月份';
+    const missingStart = startMonth && !afterMonths.includes(startMonth)
+      ? `；⚠️ 未发现 ${startMonth} 入库数据，请检查飞书源表/日期格式/同步函数`
+      : '';
+
     setQcStatus('ok',
-      `✅ 同步成功：新增 ${result.inserted} 条，跳过重复 ${result.skipped} 条 | ${sheetInfo}`
+      `✅ 同步完成：写入/更新 ${result.upserted ?? result.total ?? 0} 条，飞书解析 ${result.raw ?? ''} 条 | ${sheetInfo} | ${monthMsg}${missingStart}`
     );
 
-    // 同步完成后重新从 qc_records 加载数据
-    await loadFromQcRecords();
+    // 同步完成后重新加载最新数据库月份，不再只看浏览器临时数据
+    if (afterMonths[0]) await loadFromQcRecords(afterMonths[0]);
+    await initQcMonthBar();
 
   } catch(e) {
     setQcStatus('err', '❌ 同步失败：' + e.message);
@@ -4406,17 +5561,89 @@ async function syncFeishu() {
   }
 }
 
-// ──── 从 Supabase qc_records 表加载数据并渲染 ────
-async function loadFromQcRecords() {
-  try {
-    // 取本月数据（最多取最新6000条）
-    const { data, error } = await _supa
-      .from('qc_records')
-      .select('*')
-      .order('date', { ascending: false })
-      .limit(6000);
+// ──── 月份切换器 ────
+async function initQcMonthBar() {
+  const bar = document.getElementById('qcMonthBtns');
+  if (!bar) return;
 
-    if (error || !data || data.length === 0) return false;
+  let months = [];
+  try {
+    months = await fetchQcMonths();
+  } catch(e) {
+    console.warn('[月份列表加载失败]', e.message);
+  }
+
+  if (!months.length) {
+    bar.innerHTML = '<span style="font-size:12px;color:var(--text2)">暂无数据库月份</span>';
+    return;
+  }
+
+  const activeMonth = QC_CONFIG.month || months[0];
+
+  bar.innerHTML = months.map(m => {
+    const label = m.replace('-', '年') + '月';
+    const isActive = m === activeMonth;
+    return `<button onclick="switchQcMonth('${m}')" id="qcMBtn_${m}"
+      style="padding:4px 12px;border-radius:20px;border:1px solid ${isActive?'var(--primary)':'var(--border)'};
+      background:${isActive?'var(--primary)':'transparent'};color:${isActive?'#fff':'var(--text1)'};
+      font-size:12px;cursor:pointer;transition:all .2s">${label}</button>`;
+  }).join('');
+}
+
+async function switchQcMonth(month) {
+  const loading = document.getElementById('qcMonthLoading');
+  if (loading) loading.style.display = 'inline';
+  await loadFromQcRecords(month);
+  if (loading) loading.style.display = 'none';
+  // 更新按钮高亮
+  document.querySelectorAll('[id^="qcMBtn_"]').forEach(btn => {
+    const m = btn.id.replace('qcMBtn_', '');
+    const isActive = m === month;
+    btn.style.background = isActive ? 'var(--primary)' : 'transparent';
+    btn.style.color = isActive ? '#fff' : 'var(--text1)';
+    btn.style.borderColor = isActive ? 'var(--primary)' : 'var(--border)';
+  });
+}
+
+// ──── 从 Supabase qc_records 表加载数据并渲染 ────
+async function loadFromQcRecords(targetMonth) {
+  try {
+    const explicitMonth = !!targetMonth;
+    // 未指定月份时，加载数据库中最新月份，而不是硬取当前系统月份
+    if (!targetMonth) {
+      const months = await fetchQcMonths();
+      targetMonth = months[0] || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+    }
+
+    // 分页加载全部数据（Supabase 默认上限 1000 条/次，需逐页取）
+    const PAGE = 1000;
+    let allData = [];
+    let from = 0;
+    while (true) {
+      const { data: page, error } = await _supa
+        .from('qc_records')
+        .select('*')
+        .eq('month', targetMonth)
+        .order('date', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!page || page.length === 0) break;
+      allData = allData.concat(page);
+      if (page.length < PAGE) break;
+      from += PAGE;
+    }
+    const data = allData;
+
+    if (!data || data.length === 0) {
+      const months = await fetchQcMonths().catch(() => []);
+      const msg = months.length
+        ? `⚠️ ${targetMonth} 暂无质检数据；当前数据库月份：${months.join('、')}`
+        : `⚠️ ${targetMonth} 暂无质检数据；数据库目前没有任何月份`;
+      setQcStatus('err', msg);
+      // 明确选择某月时不再自动跳到最新月份，避免误以为历史月份只是被隐藏
+      if (explicitMonth) return false;
+      return false;
+    }
 
     // 转换为系统 session 格式
     const sessions = data.map(r => ({
@@ -4432,6 +5659,7 @@ async function loadFromQcRecords() {
       issue:       r.issue || '',
       responsible: r.responsible || '',
       tip:         r.tip || '',
+      analysis:    r.analysis || '',
       pass:        r.pass,
       type:        '',
     }));
@@ -4454,16 +5682,16 @@ async function loadFromQcRecords() {
     Object.assign(ISSUE_FREQ, stats.issueFreq);
     Object.keys(DIM_FREQ).forEach(k => delete DIM_FREQ[k]);
     Object.assign(DIM_FREQ, stats.dimFreq);
-    QC_CONFIG.month = stats.month;
+    QC_CONFIG.month = targetMonth;
 
     // 读取最后同步时间
     const { data: cfgRow } = await _supa
       .from('app_config')
       .select('value')
       .eq('key', 'last_sync_at')
-      .single();
+      .maybeSingle();
 
-    let syncLabel = '飞书同步';
+    let syncLabel = '数据库数据';
     if (cfgRow?.value) {
       const d = new Date(cfgRow.value);
       const mm = String(d.getMonth()+1).padStart(2,'0');
@@ -4473,21 +5701,128 @@ async function loadFromQcRecords() {
       syncLabel = `飞书同步 · ${mm}-${dd} ${hh}:${mi}`;
     }
     QC_CONFIG.lastUpdated = syncLabel;
-    document.getElementById('lastUpdateTime').textContent = syncLabel;
+    const lastEl = document.getElementById('lastUpdateTime');
+    if (lastEl) lastEl.textContent = syncLabel;
 
     // 标记数据来源
     const srcEl = document.getElementById('qcDataSource');
-    if (srcEl) srcEl.textContent = '📡 数据来自飞书';
+    if (srcEl) srcEl.textContent = '📡 数据来自数据库';
 
     // 重新渲染所有模块
     renderDashboard();
     initDetailPage();
     initAgentPage();
+    await initQcMonthBar();
 
     return true;
   } catch(e) {
     console.warn('[loadFromQcRecords 失败]', e.message);
+    setQcStatus('err', '❌ 加载质检数据失败：' + e.message);
     return false;
+  }
+}
+
+// ============================================================
+// ★★★  同步管理  ★★★
+// ============================================================
+
+async function loadSyncStartDate() {
+  const { data } = await _supa.from('app_config').select('value').eq('key','sync_start_date').maybeSingle();
+  const date = data?.value || '2026-04-01';
+  const inp = document.getElementById('syncStartDateInput');
+  if (inp) inp.value = date;
+  return date;
+}
+
+// 手动保存日期输入框里的日期
+async function saveSyncStartDate() {
+  const statusEl = document.getElementById('syncMgmtStatus');
+  const inp = document.getElementById('syncStartDateInput');
+  const date = inp?.value;
+  if (!date) { statusEl.style.color='var(--fail)'; statusEl.textContent='请先选择日期'; return; }
+  statusEl.textContent = '⏳ 保存中…';
+  try {
+    const { error } = await _supa.from('app_config')
+      .upsert({ key: 'sync_start_date', value: date }, { onConflict: 'key' });
+    if (error) throw error;
+    statusEl.style.color = 'var(--pass)';
+    statusEl.textContent = `✅ 已保存，下次飞书同步将从 ${date} 开始`;
+  } catch(e) {
+    statusEl.style.color = 'var(--fail)';
+    statusEl.textContent = '❌ 保存失败：' + e.message;
+  }
+}
+
+async function archiveCurrentMonth() {
+  const statusEl = document.getElementById('syncMgmtStatus');
+  statusEl.textContent = '⏳ 检查中…';
+  try {
+    const current = await loadSyncStartDate();
+    const currentMonth = normalizeQcMonthFromText(current);
+    if (!currentMonth) throw new Error('同步起始日期格式异常，请先重新选择日期');
+
+    // 归档前必须确认当前月份已经入库
+    const { count, error: countErr } = await _supa
+      .from('qc_records')
+      .select('session_id', { count: 'exact', head: true })
+      .eq('month', currentMonth);
+    if (countErr) throw countErr;
+
+    if (!count || count <= 0) {
+      statusEl.style.color = 'var(--fail)';
+      statusEl.textContent = `❌ 禁止归档：数据库中没有 ${currentMonth} 的质检数据。请先同步/上传该月份CSV，确认质检明细和客服质检汇总可查看后再操作。`;
+      return;
+    }
+
+    const parts = currentMonth.split('-');
+    let year = parseInt(parts[0], 10), month = parseInt(parts[1], 10);
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+    const nextMonth = `${year}-${String(month).padStart(2,'0')}-01`;
+
+    const ok = confirm(
+      `确认将“下次飞书同步起始日期”调整为 ${nextMonth} 吗？\n\n` +
+      `当前数据库已有 ${currentMonth} 质检数据 ${count} 条。\n` +
+      `这个操作不会删除历史数据，但之后飞书同步将从 ${nextMonth} 开始，不会再自动补拉 ${currentMonth}。\n\n` +
+      `请确认：${currentMonth} 质检数据已经完整，绩效已核对/已备份。`
+    );
+    if (!ok) {
+      statusEl.style.color = 'var(--text2)';
+      statusEl.textContent = '已取消';
+      return;
+    }
+
+    statusEl.textContent = '⏳ 保存中…';
+    const { error } = await _supa.from('app_config')
+      .upsert({ key: 'sync_start_date', value: nextMonth }, { onConflict: 'key' });
+    if (error) throw error;
+
+    const inp = document.getElementById('syncStartDateInput');
+    if (inp) inp.value = nextMonth;
+    statusEl.style.color = 'var(--pass)';
+    statusEl.textContent = `✅ 已设置：下次飞书同步将从 ${nextMonth} 开始。历史月份仍可在质检明细/汇总中查看。`;
+    await initQcMonthBar();
+  } catch(e) {
+    statusEl.style.color = 'var(--fail)';
+    statusEl.textContent = '❌ 失败：' + e.message;
+  }
+}
+
+async function resetSyncStartDate() {
+  if (!confirm('确定重置为 2026-04-01 吗？这会让下次同步重新读取4月以来的所有数据。')) return;
+  const statusEl = document.getElementById('syncMgmtStatus');
+  statusEl.textContent = '⏳ 处理中…';
+  try {
+    const { error } = await _supa.from('app_config')
+      .upsert({ key: 'sync_start_date', value: '2026-04-01' }, { onConflict: 'key' });
+    if (error) throw error;
+    const inp = document.getElementById('syncStartDateInput');
+    if (inp) inp.value = '2026-04-01';
+    statusEl.style.color = 'var(--pass)';
+    statusEl.textContent = '✅ 已重置为默认值';
+  } catch(e) {
+    statusEl.style.color = 'var(--fail)';
+    statusEl.textContent = '❌ 失败：' + e.message;
   }
 }
 
@@ -4498,6 +5833,17 @@ async function loadFromQcRecords() {
 const ROLE_LABEL_MAP = { admin:'管理员', supervisor:'主管', agent:'客服' };
 
 async function loadUsersPage() {
+  // 管理员才显示同步管理区
+  const syncSection = document.getElementById('syncMgmtSection');
+  if (syncSection) {
+    if (_currentRole === 'admin') {
+      syncSection.style.display = 'block';
+      loadSyncStartDate();
+    } else {
+      syncSection.style.display = 'none';
+    }
+  }
+
   const tbody = document.getElementById('userTableBody');
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text2)">加载中...</td></tr>';
 
@@ -4633,8 +5979,14 @@ let _rosterShopFilter = '全部';
 const SHOP_ICONS = {
   '舒肤佳官方旗舰店':'🧴','吉列维纳斯个护用品旗舰店':'💜','吉列个护用品旗舰店':'🪒',
   '沙宣官方旗舰店':'💇','a2紫曜海外旗舰店':'🍼','STOKKE官方旗舰店':'🌿',
-  '爱他美奶粉海外旗舰店':'🐄','爱他美至熠海外旗舰店':'⭐','麦当劳官方旗舰店':'🍔','怡宝官方旗舰店':'💧'
+  '爱他美奶粉海外旗舰店':'🐄','爱他美至熠海外旗舰店':'⭐','麦当劳官方旗舰店':'🍔','怡宝官方旗舰店':'💧',
+  '丽敷美官方旗舰店':'🌸','丽敷美':'🌸'
 };
+const ACTIVE_ROSTER_SHOPS = [
+  '舒肤佳官方旗舰店','吉列个护用品旗舰店','吉列维纳斯个护用品旗舰店',
+  '爱他美奶粉海外旗舰店','爱他美至熠海外旗舰店','麦当劳官方旗舰店',
+  'STOKKE官方旗舰店','a2紫曜海外旗舰店','怡宝官方旗舰店','丽敷美官方旗舰店'
+];
 
 async function loadRosterPage() {
   const { data, error } = await _supa.from('agent_roster').select('*').order('shop_name').order('real_name');
@@ -4654,7 +6006,8 @@ function buildShopFilterTabs() {
 }
 
 function buildShopDatalist() {
-  const shops = [...new Set(_rosterData.map(r => r.shop_name))];
+  // 新增/编辑名册仅推荐在役店铺；沙宣旧记录仍保留在历史筛选和名册展示中。
+  const shops = ACTIVE_ROSTER_SHOPS;
   const dl = document.getElementById('shopNameList');
   if (dl) dl.innerHTML = shops.map(s => `<option value="${s}">`).join('');
 }
@@ -4708,6 +6061,55 @@ function renderRoster() {
       </div>
     </div>
   `).join('');
+}
+
+function exportRosterExcel() {
+  if (typeof XLSX === 'undefined') { pfToast('Excel组件尚未加载，请刷新页面后重试','error'); return; }
+  if (!_rosterData.length) { pfToast('当前没有可导出的名册数据','error'); return; }
+
+  const records=[..._rosterData].sort((a,b)=>
+    String(a.shop_name||'').localeCompare(String(b.shop_name||''),'zh-CN') ||
+    String(a.real_name||'').localeCompare(String(b.real_name||''),'zh-CN') ||
+    String(a.nickname||'').localeCompare(String(b.nickname||''),'zh-CN')
+  );
+
+  const detailRows=[['客服名册明细'],[],['真实姓名','客服昵称','所属店铺','备注']];
+  records.forEach(r=>detailRows.push([r.real_name||'',r.nickname||'',r.shop_name||'',r.note||'']));
+  const detailWs=XLSX.utils.aoa_to_sheet(detailRows);
+  detailWs['!merges']=[XLSX.utils.decode_range('A1:D1')];
+  detailWs['!autofilter']={ref:`A3:D${detailRows.length}`};
+  detailWs['!freeze']={xSplit:0,ySplit:3,topLeftCell:'A4',activePane:'bottomLeft',state:'frozen'};
+  detailWs['!cols']=[{wch:16},{wch:24},{wch:34},{wch:28}];
+
+  const people=new Map();
+  records.forEach(r=>{
+    const name=String(r.real_name||'').trim()||'未填写姓名';
+    if (!people.has(name)) people.set(name,{shops:new Set(),nicknames:new Set(),notes:new Set()});
+    const person=people.get(name);
+    if (r.shop_name) person.shops.add(String(r.shop_name).trim());
+    if (r.nickname) person.nicknames.add(String(r.nickname).trim());
+    if (r.note) person.notes.add(String(r.note).trim());
+  });
+  const summaryRows=[['个人店铺汇总'],[],['真实姓名','负责店铺数','负责店铺名称','客服昵称','备注']];
+  [...people.entries()]
+    .sort((a,b)=>a[0].localeCompare(b[0],'zh-CN'))
+    .forEach(([name,p])=>summaryRows.push([
+      name,p.shops.size,[...p.shops].sort((a,b)=>a.localeCompare(b,'zh-CN')).join('、'),
+      [...p.nicknames].sort((a,b)=>a.localeCompare(b,'zh-CN')).join('、'),[...p.notes].join('、')
+    ]));
+  const summaryWs=XLSX.utils.aoa_to_sheet(summaryRows);
+  summaryWs['!merges']=[XLSX.utils.decode_range('A1:E1')];
+  summaryWs['!autofilter']={ref:`A3:E${summaryRows.length}`};
+  summaryWs['!freeze']={xSplit:0,ySplit:3,topLeftCell:'A4',activePane:'bottomLeft',state:'frozen'};
+  summaryWs['!cols']=[{wch:16},{wch:12},{wch:68},{wch:36},{wch:28}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,summaryWs,'个人店铺汇总');
+  XLSX.utils.book_append_sheet(wb,detailWs,'名册明细');
+  const today=new Date();
+  const date=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  XLSX.writeFile(wb,`客服名册_${date}.xlsx`,{compression:true});
+  pfToast(`已导出 ${people.size} 人、${records.length} 条名册记录`);
 }
 
 // ── 弹窗 ──
@@ -4767,16 +6169,35 @@ window.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 // KPI 数据上传 & 自动计算
 // ============================================================
+
+// 同名异字规范化（KPI 侧）：key → 规范名
+const KPI_NAME_NORMALIZE = {
+  '何友捷': '何友婕',
+  '李文捷': '李文婕',
+  '郭宏君': '郭洪君',   // 防止数据库里有旧名字
+};
+// 售后客服关键词（这些人从正式结果中移出，放到"待确认"区）
+const KPI_AFTERCARE_KEYWORDS = ['售后'];
+
+function kpiNormalizeName(name) {
+  return KPI_NAME_NORMALIZE[name] || name;
+}
+function kpiIsAftercare(name) {
+  return KPI_AFTERCARE_KEYWORDS.some(kw => name.includes(kw));
+}
+
 const KPI_NONSAT_STD = {
   '舒肤佳':10,'吉列':10,'维纳斯':10,'爱他美AP':8,'爱他美至熠':8,
-  '沙宣':20,'麦当劳':20,'stokke':20,'怡宝':20,'a2':20,
+  '沙宣':20,'丽敷美':20,'麦当劳':20,'stokke':20,'怡宝':20,'a2':20,
 };
-const KPI_LEADER_SHOPS = ['舒肤佳','吉列','维纳斯','沙宣','爱他美AP','爱他美至熠','麦当劳','stokke','怡宝','a2'];
+// 当前在役店铺。沙宣历史数据保留在数据库和历史月份中，但不再作为新月份默认项。
+const KPI_LEADER_SHOPS = ['舒肤佳','吉列','维纳斯','丽敷美','爱他美AP','爱他美至熠','麦当劳','stokke','怡宝','a2'];
 const KPI_LEADER_DEFAULTS = {
   '舒肤佳':  {ns:10.29,resp:13,proc:100,r3:99.98},
   '吉列':    {ns:15.46,resp:14,proc:100,r3:99.80},
   '维纳斯':  {ns:12.64,resp:14,proc:100,r3:100},
   '沙宣':    {ns:22.94,resp:14,proc:100,r3:99.88},
+  '丽敷美':  {ns:null,resp:null,proc:null,r3:null},
   '爱他美AP':{ns:8.80, resp:12,proc:100,r3:99.93},
   '爱他美至熠':{ns:6.25,resp:12,proc:100,r3:100},
   '麦当劳':  {ns:21.94,resp:12,proc:100,r3:99.91},
@@ -4784,6 +6205,8 @@ const KPI_LEADER_DEFAULTS = {
   '怡宝':    {ns:13.97,resp:11,proc:100,r3:99.71},
   'a2':      {ns:7.85, resp:12,proc:100,r3:99.76},
 };
+let _leaderGroupSeq = 0;
+let _leaderImportGroupId = null;
 
 function toggleKpiPanel() {
   const body = document.getElementById('kpiUploadBody');
@@ -4795,20 +6218,455 @@ function toggleKpiPanel() {
   }
 }
 
+function leaderShopRow(shop='', data={}) {
+  const inp = (cls, v, step, w) => `<input class="${cls}" type="number" step="${step}" value="${v ?? ''}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-align:center">`;
+  const nsStd = data.nsStd ?? kpiGetNonSatStd(shop);
+  return `<tr style="border-bottom:1px solid #f5f5f5">
+    <td style="padding:4px"><input class="leader-shop-name" value="${esc(shop)}" placeholder="店铺名称" style="min-width:130px;width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-weight:600"></td>
+    <td style="padding:4px;text-align:center">${inp('leader-ns-std',nsStd,'0.01',68)}</td>
+    <td style="padding:4px;text-align:center">${inp('leader-ns',data.ns,'0.01',75)}</td>
+    <td style="padding:4px;text-align:center">${inp('leader-resp',data.resp,'1',55)}</td>
+    <td style="padding:4px;text-align:center">${inp('leader-proc',data.proc,'0.01',70)}</td>
+    <td style="padding:4px;text-align:center">${inp('leader-r3',data.r3,'0.01',75)}</td>
+    <td style="padding:4px;text-align:center"><button type="button" onclick="leaderRemoveShop(this)" title="删除店铺" style="border:none;background:transparent;color:#c62828;font-size:18px;cursor:pointer">×</button></td>
+  </tr>`;
+}
+
+function leaderAddGroup(prefillDefaults=false) {
+  const container = document.getElementById('leaderGroupsContainer');
+  if (!container) return;
+  const id = `leaderGroup_${++_leaderGroupSeq}`;
+  const panel = document.createElement('section');
+  panel.className = 'leader-group-card';
+  panel.dataset.groupId = id;
+  panel.style.cssText = 'border:1px solid #e1bee7;border-radius:8px;margin-bottom:12px;overflow:hidden;background:#fff';
+  panel.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:end;padding:12px;background:#faf5fc">
+      <label style="font-size:11px;color:#666">组长姓名<input class="leader-name" placeholder="请输入组长姓名" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></label>
+      <label style="font-size:11px;color:#666">绩效基数（元）<input class="leader-base" type="number" value="2000" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></label>
+      <label style="font-size:11px;color:#666">本月培训次数<input class="leader-training" type="number" value="8" min="0" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button type="button" onclick="leaderChooseImport('${id}','screenshot')" title="导入截图" style="padding:6px 9px;border:1px solid var(--primary);border-radius:6px;background:white;color:var(--primary);cursor:pointer">📷</button>
+        <button type="button" onclick="leaderChooseImport('${id}','excel')" title="导入Excel" style="padding:6px 9px;border:1px solid var(--pass);border-radius:6px;background:white;color:var(--pass);cursor:pointer">📊</button>
+        <button type="button" onclick="leaderAddShop('${id}')" style="padding:6px 9px;border:1px solid #1565C0;border-radius:6px;background:white;color:#1565C0;cursor:pointer">＋店铺</button>
+        <button type="button" onclick="leaderRemoveGroup('${id}')" title="删除组长" style="padding:6px 9px;border:1px solid #ddd;border-radius:6px;background:white;color:#c62828;cursor:pointer">删除</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f8f8f8"><th style="padding:7px;text-align:left">负责店铺</th><th>非满标准(%)</th><th>非满率(%)</th><th>响应时长(s)</th><th>售后处理响应时长</th><th>3分钟回复率(%)</th><th style="width:38px"></th></tr></thead>
+      <tbody class="leader-shop-body"></tbody>
+    </table></div>`;
+  container.appendChild(panel);
+  const body = panel.querySelector('.leader-shop-body');
+  if (prefillDefaults) body.innerHTML = KPI_LEADER_SHOPS.map(s => leaderShopRow(s, KPI_LEADER_DEFAULTS[s])).join('');
+  else body.innerHTML = leaderShopRow();
+}
+
 function kpiInitLeaderTable() {
-  const tb = document.getElementById('leaderShopBody');
+  const container = document.getElementById('leaderGroupsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  _leaderGroupSeq = 0;
+  leaderAddGroup(true);
+}
+
+function leaderAddShop(groupId, shop='', data={}) {
+  const body = document.querySelector(`[data-group-id="${groupId}"] .leader-shop-body`);
+  if (body) body.insertAdjacentHTML('beforeend', leaderShopRow(shop, data));
+}
+function leaderRemoveShop(btn) { btn.closest('tr')?.remove(); }
+function leaderRemoveGroup(groupId) {
+  const groups = document.querySelectorAll('.leader-group-card');
+  if (groups.length <= 1) { pfToast('至少保留一位组长录入卡片', 'error'); return; }
+  document.querySelector(`[data-group-id="${groupId}"]`)?.remove();
+}
+function leaderChooseImport(groupId, type) {
+  _leaderImportGroupId = groupId;
+  document.getElementById(type === 'excel' ? 'leaderExcelInput' : 'leaderScreenshotInput').click();
+}
+function leaderChooseFirstImport(type) {
+  const panel = document.querySelector('.leader-group-card');
+  if (!panel) { pfToast('请先添加组长', 'error'); return; }
+  leaderChooseImport(panel.dataset.groupId, type);
+}
+
+// ─── 组长数据：填表辅助 ──────────────────────────────────────────
+
+// 组长店铺数据百分比统一转换：Excel 常把 99.95% 读成 0.9995，手填也可能是 99.95 或 "99.95%"。
+// 统一转成 0~100 的百分比数值，避免再次把百分比当小数计算。
+function leaderParsePercentValue(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') {
+    if (!isFinite(v)) return null;
+    return v >= 0 && v <= 1 ? v * 100 : v;
+  }
+  const raw = String(v).trim();
+  if (!raw || raw === '-' || raw === '—') return null;
+  const hasPct = raw.includes('%') || raw.includes('％');
+  const n = parseFloat(raw.replace(/％/g, '%').replace('%', '').replace(/,/g, '').trim());
+  if (isNaN(n)) return null;
+  return (!hasPct && n >= 0 && n <= 1) ? n * 100 : n;
+}
+
+function leaderParseNumberValue(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseFloat(String(v).replace(/秒|分钟|分|s/gi, '').replace(/,/g, '').trim());
+  return isNaN(n) ? null : n;
+}
+
+function leaderNormalizeText(v) {
+  return String(v ?? '').trim().toLowerCase().replace(/[\s_\-—（）()【】\[\]]/g, '');
+}
+
+const LEADER_SHOP_ALIASES = {
+  '舒肤佳': ['舒肤佳'],
+  '吉列': ['吉列'],
+  '维纳斯': ['维纳斯', '吉列维纳斯'],
+  '沙宣': ['沙宣'],
+  '丽敷美': ['丽敷美', '丽敷美官方旗舰店'],
+  '爱他美AP': ['爱他美ap'],
+  '爱他美至熠': ['爱他美至熠'],
+  '麦当劳': ['麦当劳'],
+  'stokke': ['stokke'],
+  '怡宝': ['怡宝'],
+  'a2': ['a2']
+};
+
+function leaderCanonicalShop(v) {
+  const original = String(v ?? '').trim();
+  const name = leaderNormalizeText(original);
+  if (!name) return null;
+  for (const [canonical, aliases] of Object.entries(LEADER_SHOP_ALIASES)) {
+    if (aliases.some(alias => leaderNormalizeText(alias) === name)) return canonical;
+  }
+  return original;
+}
+
+// 将识别/解析结果填入表格
+function leaderFillTable(rows, groupId=_leaderImportGroupId) {
+  // rows: [{shop, ns, resp, proc, r3}, ...]
+  const panel = groupId ? document.querySelector(`[data-group-id="${groupId}"]`) : document.querySelector('.leader-group-card');
+  const tb = panel?.querySelector('.leader-shop-body');
   if (!tb) return;
-  tb.innerHTML = KPI_LEADER_SHOPS.map(s => {
-    const d = KPI_LEADER_DEFAULTS[s] || {};
-    const inp = (v,step,w) => `<input type="number" step="${step}" value="${v??''}" style="width:${w}px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-align:center">`;
-    return `<tr style="border-bottom:1px solid #f5f5f5">
-      <td style="padding:6px 10px;font-weight:600">${s}</td>
-      <td style="padding:4px;text-align:center">${inp(d.ns,'0.01',75)}</td>
-      <td style="padding:4px;text-align:center">${inp(d.resp,'1',55)}</td>
-      <td style="padding:4px;text-align:center">${inp(d.proc,'1',55)}</td>
-      <td style="padding:4px;text-align:center">${inp(d.r3,'0.01',75)}</td>
+  let filled = 0;
+  for (const row of rows) {
+    const rowShop = leaderCanonicalShop(row.shop);
+    if (!rowShop) continue;
+    const trs = tb.querySelectorAll('tr');
+    for (const tr of trs) {
+      const shopInput = tr.querySelector('.leader-shop-name');
+      if (!shopInput) continue;
+      const shopName = leaderCanonicalShop(shopInput.value);
+      if (leaderNormalizeText(shopName) !== leaderNormalizeText(rowShop)) continue;
+      const nsVal   = leaderParsePercentValue(row.ns);
+      const respVal = leaderParseNumberValue(row.resp);
+      const procVal = leaderParseNumberValue(row.proc);
+      const r3Val   = leaderParsePercentValue(row.r3);
+      const nsInput=tr.querySelector('.leader-ns'), respInput=tr.querySelector('.leader-resp');
+      const procInput=tr.querySelector('.leader-proc'), r3Input=tr.querySelector('.leader-r3');
+      if (nsInput && nsVal != null) { nsInput.value=Math.round(nsVal*10000)/10000; nsInput.style.background='#e8f5e9'; }
+      if (respInput && respVal != null) { respInput.value=respVal; respInput.style.background='#e8f5e9'; }
+      if (procInput && procVal != null) { procInput.value=procVal; procInput.style.background='#e8f5e9'; }
+      if (r3Input && r3Val != null) { r3Input.value=Math.round(r3Val*10000)/10000; r3Input.style.background='#e8f5e9'; }
+      filled++;
+      break;
+    }
+    if (![...tb.querySelectorAll('.leader-shop-name')].some(input => leaderNormalizeText(leaderCanonicalShop(input.value)) === leaderNormalizeText(rowShop))) {
+      leaderAddShop(panel.dataset.groupId, rowShop, row);
+      filled++;
+    }
+  }
+  return filled;
+}
+
+function leaderSetStatus(msg, type='info') {
+  const el = document.getElementById('leaderParseStatus');
+  if (!el) return;
+  if (!msg) { el.style.display='none'; return; }
+  el.style.display = 'block';
+  el.style.background = type==='ok' ? '#e8f5e9' : type==='err' ? '#ffebee' : '#fff8e1';
+  el.style.color = type==='ok' ? '#2E7D32' : type==='err' ? '#c62828' : '#E65100';
+  el.textContent = msg;
+}
+
+// ─── 截图上传 → Claude Vision 识别 ──────────────────────────────
+async function leaderParseScreenshot(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';   // 允许重复上传同一文件
+
+  leaderSetStatus('⏳ 正在识别截图，请稍候…');
+
+  try {
+    // 转 base64
+    const b64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => res(e.target.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+    const mimeType = file.type || 'image/png';
+
+    const prompt = `这是一张客服数据截图（各店铺汇总数据表）。
+请从截图中提取每个店铺的以下数据，以JSON数组返回（只返回JSON，不要其他内容）：
+[{"shop":"店铺名","ns":非满率数值,"resp":响应时长秒数,"proc":售后处理响应时长得分,"r3":3分钟回复率数值},...]
+
+说明：
+- shop：店铺名称（如：舒肤佳、吉列、维纳斯、丽敷美、爱他美AP、爱他美至熠、麦当劳、stokke、怡宝、a2）
+- ns：非满率，百分比数值（如 10.29）
+- resp：响应时长，单位秒（如 13）
+- proc：售后处理响应时长得分（如 100，≥90分达标）
+- r3：3分钟回复率，百分比数值（如 99.98）
+- 如果截图中没有某列数据，该字段填 null
+- 如果截图中有"总计"或"平均"行，跳过不输出
+
+只返回JSON数组，不要解释。`;
+
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/leader-vision`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_JWT_KEY}`,
+        'apikey': SUPABASE_ANON_KEY,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        image: b64,
+        mimeType,
+        prompt
+      })
+    });
+
+    if (!resp.ok) {
+      const detail = await resp.json().catch(() => ({}));
+      throw new Error(detail.error || `API错误 ${resp.status}`);
+    }
+    const data = await resp.json();
+    const text = data.text || '';
+
+    // 提取JSON
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('未识别到有效数据，请检查截图是否清晰');
+    const rows = JSON.parse(jsonMatch[0]);
+
+    const filled = leaderFillTable(rows);
+    leaderSetStatus(`✅ 识别完成，已填入 ${filled} 家店铺数据（绿色高亮），请核对后再计算`, 'ok');
+  } catch(e) {
+    const msg = String(e?.message || e);
+    if (msg.includes('401') || msg.includes('403')) {
+      leaderSetStatus('❌ 截图识别接口认证失败（' + msg + '）。这不是表格数据问题，请先使用“上传Excel”或手动填写；如需恢复截图识别，需要重新配置有效的图片识别接口。', 'err');
+    } else {
+      leaderSetStatus('❌ 识别失败：' + msg + '。请优先使用“上传Excel”，或手动修改表格数据', 'err');
+    }
+    console.error('[leaderParseScreenshot]', e);
+  }
+}
+
+// ─── Excel 上传解析 ──────────────────────────────────────────────
+function leaderParseMonthNumber(v) {
+  const text = String(v ?? '').trim();
+  if (!text) return null;
+  let match = text.match(/(?:^|\D)(1[0-2]|0?[1-9])\s*月/);
+  if (match) return Number(match[1]);
+  match = text.match(/\d{4}[\-/.年](1[0-2]|0?[1-9])(?:\D|$)/);
+  if (match) return Number(match[1]);
+  if (/^(1[0-2]|0?[1-9])$/.test(text)) return Number(text);
+  return null;
+}
+
+async function leaderParseExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  leaderSetStatus('⏳ 解析Excel中…');
+  try {
+    const assessmentMonth = document.getElementById('kpiMonth')?.value || '';
+    if (!assessmentMonth) throw new Error('请先选择考核月份，再上传Excel');
+    const targetMonth = Number(assessmentMonth.split('-')[1]);
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellFormula: false, cellText: true, cellDates: true });
+    const candidates = [];
+    for (const sheetName of wb.SheetNames) {
+      const matrix = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+      for (let i = 0; i < Math.min(matrix.length, 30); i++) {
+        const header = matrix[i].map(leaderNormalizeText);
+        const indexOf = (...terms) => header.findIndex(h => terms.some(t => h.includes(leaderNormalizeText(t))));
+        const cols = {
+          shop: indexOf('店铺', 'shop'),
+          month: indexOf('月份', '月度', 'month'),
+          ns: indexOf('非满'),
+          resp: indexOf('响应时长', '回复时长'),
+          proc: indexOf('售后处理响应时长', '售后处理时长', '处理时长'),
+          r3: indexOf('3分钟回复率', '三分钟回复率')
+        };
+        const metricCount = ['ns','resp','proc','r3'].filter(k => cols[k] >= 0).length;
+        if (cols.shop >= 0 && metricCount >= 2) {
+          const recognizedShops = new Set(matrix.slice(i + 1).map(r => leaderCanonicalShop(r[cols.shop])).filter(Boolean)).size;
+          const matchingMonthRows = cols.month >= 0
+            ? matrix.slice(i + 1).filter(r => leaderParseMonthNumber(r[cols.month]) === targetMonth).length
+            : 0;
+          candidates.push({ sheetName, matrix, headerRow: i, cols, score: metricCount, recognizedShops, matchingMonthRows });
+        }
+      }
+    }
+    // 客服月度汇总文件：每个 Sheet 代表一个店铺，按接待量聚合后直接预填组长店铺数据。
+    if (!candidates.length) {
+      const summaryRows = [];
+      for (const sheetName of wb.SheetNames) {
+        const matrix = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+        const headerRow = kpiFindHeaderRow(matrix);
+        const headers = (matrix[headerRow] || []).map(leaderNormalizeText);
+        const findCol = (...terms) => headers.findIndex(h => terms.some(t => h.includes(leaderNormalizeText(t))));
+        const iVol = findCol('接待会话量', '接待量');
+        const iNs = findCol('工作时间不满意率');
+        const iResp = findCol('工作时间平响时长', '平均响应时长');
+        const iR3 = findCol('工作时间3分钟回复率');
+        const iEval = findCol('有效评价数');
+        const iBad = findCol('有效差评数');
+        if (iVol < 0 || iNs < 0 || iResp < 0 || iR3 < 0) continue;
+        let totalVol = 0, nsWeighted = 0, respWeighted = 0, r3Weighted = 0;
+        let nsWeight = 0, respWeight = 0, r3Weight = 0, totalEval = 0, totalBad = 0;
+        for (const row of matrix.slice(headerRow + 1)) {
+          const vol = Number(String(row[iVol] ?? '').replace(/,/g, '')) || 0;
+          if (vol <= 0) continue;
+          totalVol += vol;
+          const ns = leaderParsePercentValue(row[iNs]);
+          const resp = leaderParseNumberValue(row[iResp]);
+          const r3 = leaderParsePercentValue(row[iR3]);
+          if (ns != null) { nsWeighted += ns * vol; nsWeight += vol; }
+          if (resp != null) { respWeighted += resp * vol; respWeight += vol; }
+          if (r3 != null) { r3Weighted += r3 * vol; r3Weight += vol; }
+          if (iEval >= 0 && iBad >= 0) {
+            totalEval += Number(String(row[iEval] ?? '').replace(/,/g, '')) || 0;
+            totalBad += Number(String(row[iBad] ?? '').replace(/,/g, '')) || 0;
+          }
+        }
+        if (!totalVol) continue;
+        summaryRows.push({
+          shop: leaderCanonicalShop(sheetName),
+          ns: totalEval > 0 ? totalBad / totalEval * 100 : (nsWeight ? nsWeighted / nsWeight : null),
+          resp: respWeight ? respWeighted / respWeight : null,
+          proc: null,
+          r3: r3Weight ? r3Weighted / r3Weight : null
+        });
+      }
+      if (!summaryRows.length) throw new Error('未找到可识别的组长汇总表或客服月度汇总数据');
+      const filled = leaderFillTable(summaryRows, _leaderImportGroupId);
+      const panel = document.querySelector(`[data-group-id="${_leaderImportGroupId}"]`);
+      const leaderName = panel?.querySelector('.leader-name')?.value.trim() || '当前组长';
+      leaderSetStatus(`✅ ${leaderName}：已从 ${summaryRows.length} 个店铺工作表汇总并填入 ${filled} 家店铺。售后处理响应时长不在此文件中，已保留原值，请核对绿色数据`, 'ok');
+      return;
+    }
+    const activeIndex = Number(wb.Workbook?.Views?.[0]?.activeTab);
+    const activeSheet = Number.isInteger(activeIndex) ? wb.SheetNames[activeIndex] : null;
+    candidates.sort((a, b) =>
+      b.score - a.score ||
+      b.matchingMonthRows - a.matchingMonthRows ||
+      b.recognizedShops - a.recognizedShops ||
+      Number(b.sheetName === activeSheet) - Number(a.sheetName === activeSheet) ||
+      b.headerRow - a.headerRow
+    );
+    const selected = candidates[0];
+    const c = selected.cols;
+    const allRows = selected.matrix.slice(selected.headerRow + 1).map(r => ({
+      shop: r[c.shop],
+      month: c.month >= 0 ? leaderParseMonthNumber(r[c.month]) : null,
+      monthText: c.month >= 0 ? String(r[c.month] ?? '').trim() : '',
+      ns: c.ns >= 0 ? leaderParsePercentValue(r[c.ns]) : null,
+      resp: c.resp >= 0 ? leaderParseNumberValue(r[c.resp]) : null,
+      proc: c.proc >= 0 ? leaderParseNumberValue(r[c.proc]) : null,
+      r3: c.r3 >= 0 ? leaderParsePercentValue(r[c.r3]) : null
+    })).filter(r => leaderCanonicalShop(r.shop));
+
+    const availableMonths = [...new Set(allRows.map(r => r.month).filter(Boolean))].sort((a,b) => a-b);
+    if (c.month >= 0 && !availableMonths.includes(targetMonth)) {
+      throw new Error(`Excel中没有${targetMonth}月数据；文件内月份：${availableMonths.length ? availableMonths.map(m => m+'月').join('、') : '无法识别'}`);
+    }
+    const rows = c.month >= 0 ? allRows.filter(r => r.month === targetMonth) : allRows;
+    const duplicateShops = rows.map(r => leaderCanonicalShop(r.shop)).filter((shop, i, arr) => arr.indexOf(shop) !== i);
+    if (duplicateShops.length) throw new Error(`${targetMonth}月存在重复店铺：${[...new Set(duplicateShops)].join('、')}，请先整理Excel`);
+
+    const uniqueRows = [...new Map(rows.map(r => [leaderCanonicalShop(r.shop), r])).values()];
+
+    const panel = document.querySelector(`[data-group-id="${_leaderImportGroupId}"]`);
+    const configuredShops = [...(panel?.querySelectorAll('.leader-shop-name') || [])].map(input => input.value.trim()).filter(Boolean);
+    const filled = leaderFillTable(uniqueRows, _leaderImportGroupId);
+    const missing = configuredShops.filter(shop => !uniqueRows.some(r => leaderNormalizeText(leaderCanonicalShop(r.shop)) === leaderNormalizeText(leaderCanonicalShop(shop))));
+    const missingText = missing.length ? `；未找到：${missing.join('、')}` : '';
+    const leaderName = panel?.querySelector('.leader-name')?.value.trim() || '当前组长';
+    const monthNote = c.month >= 0 ? `，仅导入${targetMonth}月` : '；Excel未找到月份列';
+    leaderSetStatus(`✅ ${leaderName}：工作表“${selected.sheetName}”${monthNote}，已填入 ${filled} 家店铺${missingText}。请核对绿色数据后再计算`, 'ok');
+  } catch(e) {
+    leaderSetStatus('❌ 解析失败：' + e.message, 'err');
+  }
+}
+
+// ─── 组长绩效结果展示卡片 ────────────────────────────────────────
+function leaderShowResult(result) {
+  const card = document.getElementById('leaderResultCard');
+  const inner = document.getElementById('leaderResultInner');
+  if (!card || !inner) return;
+
+  if (!result) { card.style.display='none'; return; }
+
+  const s = result.scores;
+  const cleared = result.coef === 0;
+  const coefPct = (result.coef * 100).toFixed(1);
+  const statusColor = cleared ? 'var(--fail)' : result.coef >= 0.9 ? 'var(--pass)' : 'var(--warn)';
+  const statusText  = cleared ? '🚨 整体清零' : result.coef >= 0.9 ? '✅ 达标' : '⚠️ 待提升';
+
+  const metricRow = (label, val, weight) => {
+    const pct = val != null ? val.toFixed(1) : '—';
+    const contrib = val != null ? (val / 100 * weight).toFixed(1) : '—';
+    const color = val == null ? '#999' : val >= 80 ? 'var(--pass)' : val >= 60 ? 'var(--warn)' : 'var(--fail)';
+    return `<tr style="border-bottom:1px solid #f5e6ff">
+      <td style="padding:7px 10px;font-size:12px">${label}</td>
+      <td style="padding:7px;text-align:center;font-size:12px;font-weight:600;color:${color}">${pct}%</td>
+      <td style="padding:7px;text-align:center;font-size:12px;color:#888">×${weight}%</td>
+      <td style="padding:7px;text-align:center;font-size:12px;font-weight:600">${contrib}%</td>
     </tr>`;
-  }).join('');
+  };
+
+  inner.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="text-align:center;background:white;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">绩效系数</div>
+        <div style="font-size:28px;font-weight:700;color:${statusColor}">${coefPct}%</div>
+        <div style="font-size:12px;color:${statusColor};margin-top:2px">${statusText}</div>
+      </div>
+      <div style="text-align:center;background:white;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">预计实发</div>
+        <div style="font-size:28px;font-weight:700;color:var(--primary)">¥${result.amount.toLocaleString()}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px">基数 ¥${result.base_salary.toLocaleString()}</div>
+      </div>
+      <div style="text-align:center;background:white;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">本月培训</div>
+        <div style="font-size:28px;font-weight:700;color:#6A1B9A">${result.detail.trainCnt}次</div>
+        <div style="font-size:11px;color:#888;margin-top:2px">折算 ${result.detail.trainRate.toFixed(0)}%</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+      <thead><tr style="background:#6A1B9A;color:white">
+        <th style="padding:8px 10px;font-size:12px;font-weight:600;text-align:left">考核项</th>
+        <th style="padding:8px;font-size:12px;font-weight:600;text-align:center">达标率</th>
+        <th style="padding:8px;font-size:12px;font-weight:600;text-align:center">权重</th>
+        <th style="padding:8px;font-size:12px;font-weight:600;text-align:center">贡献</th>
+      </tr></thead>
+      <tbody>
+        ${metricRow('团队非满达标率（占30%）', s.teamNonSat, 30)}
+        ${metricRow('平均响应时长（占25%）',    s.respTime,   25)}
+        ${metricRow('3分钟回复率（占10%）',      s.reply3m,    10)}
+        ${metricRow('售后处理响应时长（占25%）', s.procTime,   25)}
+        ${metricRow('培训次数（占10%）',         s.training,   10)}
+      </tbody>
+      <tfoot><tr style="background:#f3e5f5">
+        <td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;text-align:right">绩效系数合计</td>
+        <td style="padding:8px;text-align:center;font-size:14px;font-weight:700;color:${statusColor}">${coefPct}%</td>
+      </tr></tfoot>
+    </table>
+  `;
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function kpiShowFiles(type) {
@@ -4831,10 +6689,25 @@ function kpiGetNonSatStd(shopName) {
   return 20;
 }
 
-function kpiBuildNickMap() {
+async function kpiBuildNickMap() {
   const map = {};
+  // ① 内置 ROSTER_MAP 作为基础
   for (const [agent, nicks] of Object.entries(ROSTER_MAP||{})) {
-    for (const nick of nicks) map[nick.trim()] = agent;
+    for (const nick of nicks) map[nick.trim()] = kpiNormalizeName(agent);
+  }
+  // ② 从数据库 agent_roster 补充/覆盖（优先级更高，支持动态新增）
+  try {
+    const { data } = await _supa.from('agent_roster').select('real_name,nickname');
+    for (const row of (data||[])) {
+      if (row.nickname?.trim() && row.real_name?.trim())
+        map[row.nickname.trim()] = kpiNormalizeName(row.real_name.trim());
+    }
+  } catch(e) {
+    console.warn('[名册] 数据库加载失败，仅使用内置数据', e);
+  }
+  // ③ 统一规范化所有值（防止 map 里残留旧名字）
+  for (const nick of Object.keys(map)) {
+    map[nick] = kpiNormalizeName(map[nick]);
   }
   return map;
 }
@@ -4854,6 +6727,23 @@ async function kpiReadXlsx(file) {
   });
 }
 
+async function kpiReadXlsxSheets(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, {type:'array'});
+        resolve(wb.SheetNames.map(sheetName => ({
+          sheetName,
+          rows: XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:''})
+        })));
+      } catch(err) { reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function kpiShopFromFile(filename) {
   const n = filename.replace('.xlsx','').replace('.XLSX','');
   for (const shop of KPI_LEADER_SHOPS) {
@@ -4862,38 +6752,94 @@ function kpiShopFromFile(filename) {
   return n;
 }
 
-async function kpiParseStoreFile(file) {
-  const shopName = kpiShopFromFile(file.name);
-  const rows = await kpiReadXlsx(file);
-  if (rows.length < 2) return {shopName, agents:[]};
-  const headers = rows[0].map(h=>String(h).trim());
-  const ci = name => headers.findIndex(h=>h.includes(name));
-  const iNick   = ci('客服昵称');
-  const iVol    = ci('接待会话量');
-  const iNonSat = ci('不满意率')>=0 ? ci('不满意率') : ci('工作时间不满意率');
-  const iResp   = ci('平响时长')>=0 ? ci('平响时长') : ci('工作时间平响时长');
-  const iR3     = ci('3分钟回复率');
-  const nickMap = kpiBuildNickMap();
+function kpiParsePercent(v) {
+  // Excel 百分比单元格常读成 0~1 小数；手填值/文本也可能是 99.8 或 "99.8%"。
+  // 统一返回 0~100 的百分比数字，避免绩效计算时把 0.998 误判成 0.998%。
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') {
+    if (!isFinite(v)) return null;
+    return v >= 0 && v <= 1 ? v * 100 : v;
+  }
+  const raw = String(v).trim();
+  if (!raw || raw === '-' || raw === '—') return null;
+  const hasPct = raw.includes('%');
+  const n = parseFloat(raw.replace(/％/g, '%').replace('%', '').replace(/,/g, '').trim());
+  if (isNaN(n)) return null;
+  return (!hasPct && n >= 0 && n <= 1) ? n * 100 : n;
+}
+
+function kpiParseSeconds(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).replace('秒','').trim();
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function kpiFindHeaderRow(rows) {
+  const max = Math.min(rows.length, 12);
+  for (let i = 0; i < max; i++) {
+    const txt = (rows[i] || []).map(x => String(x || '').trim()).join('|');
+    if (txt.includes('客服昵称') && (txt.includes('接待会话量') || txt.includes('接待量'))) return i;
+  }
+  return 0;
+}
+
+async function kpiParseStoreFile(file, nickMap) {
+  const sheets = await kpiReadXlsxSheets(file);
+  const multiSheet = sheets.length > 1;
+  const parsed = [];
+  const allUnmatched = [];
+  for (const sheet of sheets) {
+    const shopName = multiSheet ? kpiShopFromFile(sheet.sheetName) : kpiShopFromFile(file.name);
+    const rows = sheet.rows;
+    if (rows.length < 2) { parsed.push({shopName, agents:[], unmatched:[]}); continue; }
+  const headerRow = kpiFindHeaderRow(rows);
+  const headers = (rows[headerRow] || []).map(h=>String(h).trim());
+  const ci = (...names) => {
+    for (const name of names) {
+      const idx = headers.findIndex(h => h.includes(name));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  const iNick   = ci('客服昵称','昵称');
+  const iVol    = ci('接待会话量','接待量');
+  const iNonSat = ci('工作时间不满意率','不满意率','非满意率','非满');
+  const iResp   = ci('工作时间平响时长','平响时长','响应时长');
+  const iR3     = ci('工作时间3分钟回复率','3分钟回复率','三分钟回复率','3分钟','三分钟');
   const agents  = [];
-  const parsePct = v => { const s=String(v).replace('%','').trim(); const n=parseFloat(s); return isNaN(n)?null:n; };
-  const parseSec = v => { const s=String(v).replace('秒','').trim(); const n=parseFloat(s); return isNaN(n)?null:n; };
-  for (let i=3; i<rows.length; i++) {
+  const unmatched = []; // 有接待量但找不到真实姓名的昵称
+
+    if (iNick < 0 || iVol < 0) {
+      console.warn(`[绩效解析] ${file.name} / ${sheet.sheetName} 未识别到必要表头`, headers);
+      parsed.push({shopName, agents, unmatched});
+      continue;
+    }
+
+  for (let i=headerRow+1; i<rows.length; i++) {
     const row = rows[i];
     const nick = String(row[iNick]||'').trim();
     if (!nick || nick==='-' || nick.includes('汇总') || nick.includes('平均')) continue;
-    const agent = nickMap[nick];
-    if (!agent) continue;
-    const volume = parseInt(row[iVol])||0;
+    const volume = parseInt(String(row[iVol]||'').replace(/,/g,''))||0;
     if (volume === 0) continue; // 接待量为0 = 本月未实际接待该店铺，跳过
+    const agent = nickMap[nick];
+    if (!agent) {
+      unmatched.push({nick, shopName, volume}); // 记录未匹配昵称
+      continue;
+    }
     agents.push({
       agent, nick,
       volume,
-      nonsat:  iNonSat>=0 ? parsePct(row[iNonSat]) : null,
-      resp:    iResp>=0   ? parseSec(row[iResp])   : null,
-      reply3m: iR3>=0     ? parsePct(row[iR3])     : null,
+      // 新店或当月无非满数据时按非满率0%（满意度100%）参与绩效。
+      nonsat:  (iNonSat>=0 ? kpiParsePercent(row[iNonSat]) : null) ?? 0,
+      resp:    iResp>=0   ? kpiParseSeconds(row[iResp])  : null,
+      reply3m: iR3>=0     ? kpiParsePercent(row[iR3])    : null,
     });
   }
-  return {shopName, agents};
+    parsed.push({shopName, agents, unmatched});
+    allUnmatched.push(...unmatched);
+  }
+  return {results: parsed, unmatched: allUnmatched};
 }
 
 async function kpiParseWOFiles(createFile, finishFile) {
@@ -4937,9 +6883,76 @@ async function kpiParseWOFiles(createFile, finishFile) {
   return result;
 }
 
+async function kpiListQCAvailableMonths() {
+  try {
+    const { data } = await _supa.from('qc_records').select('month').order('month', { ascending:false }).limit(2000);
+    return [...new Set((data||[]).map(r => String(r.month||'').trim()).filter(Boolean))].sort().reverse();
+  } catch(e) {
+    console.warn('[kpiListQCAvailableMonths] 读取月份失败', e);
+    return [];
+  }
+}
+
+function kpiMonthAliases(month) {
+  const m = String(month||'').trim();
+  const aliases = new Set([m]);
+  const mm = m.match(/^(\d{4})-(\d{1,2})$/);
+  if (mm) {
+    aliases.add(`${mm[1]}-${String(parseInt(mm[2],10)).padStart(2,'0')}`);
+    aliases.add(`${mm[1]}-${parseInt(mm[2],10)}`);
+    aliases.add(`${mm[1]}年${String(parseInt(mm[2],10)).padStart(2,'0')}月`);
+    aliases.add(`${mm[1]}年${parseInt(mm[2],10)}月`);
+  }
+  return [...aliases].filter(Boolean);
+}
+
 async function kpiFetchQCData(month) {
-  const {data} = await _supa.from('qc_records').select('agent,shop,pass').eq('month',month);
-  return data||[];
+  // ① 读取昵称→真实姓名修正表（agent_roster + 内置 ROSTER_MAP）
+  const nickCorrect = {};
+  // 内置名册
+  for (const [agent, nicks] of Object.entries(ROSTER_MAP || {})) {
+    for (const nick of nicks) nickCorrect[nick.trim()] = agent;
+  }
+  // 数据库名册（优先级更高，覆盖内置）
+  try {
+    const { data: roster } = await _supa.from('agent_roster').select('real_name,nickname');
+    for (const r of (roster || [])) {
+      if (r.nickname?.trim() && r.real_name?.trim())
+        nickCorrect[r.nickname.trim()] = kpiNormalizeName(r.real_name.trim());
+    }
+  } catch(e) { console.warn('[kpiFetchQCData] 名册加载失败', e); }
+
+  // ② 分页读取 qc_records（同时取 nickname 用于修正）。严格优先当前绩效月份，
+  // 只兼容 2026-5 / 2026年05月 等同月格式，不自动套用其它月份，避免 4 月数据误用于 5 月绩效。
+  const PAGE = 1000;
+  let all = [], matchedMonth = null, lastError = null;
+  for (const m of kpiMonthAliases(month)) {
+    all = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await _supa
+        .from('qc_records').select('agent,nickname,shop,pass,month')
+        .eq('month', m)
+        .range(from, from + PAGE - 1);
+      if (error) { lastError = error; break; }
+      if (!data || data.length === 0) break;
+      all = all.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    if (all.length) { matchedMonth = m; break; }
+  }
+
+  const availableMonths = all.length ? [] : await kpiListQCAvailableMonths();
+  if (lastError && !all.length) console.warn('[kpiFetchQCData] 质检数据读取失败', lastError);
+
+  // ③ 用昵称修正 agent 名（若 agent_roster 有该昵称的映射，以映射为准）
+  const fixed = all.map(r => {
+    const corrected = r.nickname ? nickCorrect[r.nickname.trim()] : null;
+    return { ...r, agent: kpiNormalizeName(corrected || r.agent), shop: String(r.shop||'').trim() };
+  });
+  fixed._meta = { requestedMonth: month, matchedMonth, availableMonths };
+  return fixed;
 }
 
 function kpiCalcQCRate(agentName, qcRecords) {
@@ -4949,35 +6962,65 @@ function kpiCalcQCRate(agentName, qcRecords) {
 }
 
 function kpiCalcQCDetail(agentName, qcRecords) {
+  const normAgent = kpiNormalizeName((agentName||'').trim());
   const shopMap={};
   for (const r of qcRecords) {
-    if (r.agent!==agentName||!r.shop) continue;
-    if (!shopMap[r.shop]) shopMap[r.shop]={pass:0,total:0};
-    shopMap[r.shop].total++;
-    if (r.pass) shopMap[r.shop].pass++;
+    if (kpiNormalizeName((r.agent||'').trim())!==normAgent||!r.shop) continue;
+    const rawShop = String(r.shop||'').trim();
+    const key = kpiShopKey(rawShop);
+    if (!shopMap[key]) shopMap[key]={shop:rawShop,pass:0,total:0};
+    shopMap[key].total++;
+    if (r.pass) shopMap[key].pass++;
   }
-  return Object.entries(shopMap).map(([shop,d])=>({
-    shop, pass:d.pass, total:d.total,
+  return Object.values(shopMap).map(d=>({
+    shop:d.shop, shopKey:kpiShopKey(d.shop), pass:d.pass, total:d.total,
     rate:d.total?Math.round(d.pass/d.total*100):0,
     ok:d.total>0&&Math.round(d.pass/d.total*100)>=90
   }));
 }
 
-function kpiGetLeaderShopData() {
-  const rows=document.querySelectorAll('#leaderShopBody tr');
+function kpiShopKey(name) {
+  let s = String(name || '').trim().toLowerCase();
+  s = s.replace(/[\s\-_/（）()·•]+/g, '');
+  s = s.replace(/官方旗舰店|旗舰店|海外旗舰店|会员店|系列|个护用品|奶粉|genesis/g, '');
+  if (!s) return '';
+  if (s.includes('维纳斯')) return '维纳斯';
+  if (s.includes('吉列')) return '吉列';
+  if (s.includes('舒肤佳')) return '舒肤佳';
+  if (s.includes('沙宣')) return '沙宣';
+  if (s.includes('丽敷美')) return '丽敷美';
+  if (s.includes('至熠')) return '爱他美至熠';
+  if (s.includes('爱他美ap') || s.includes('爱他美')) return '爱他美AP';
+  if (s.includes('麦当劳')) return '麦当劳';
+  if (s.includes('stokke')) return 'stokke';
+  if (s.includes('怡宝') || s.includes('华润怡宝')) return '怡宝';
+  if (s.includes('a2紫曜')) return 'a2紫曜';
+  if (s.includes('a2')) return 'a2';
+  return s;
+}
+function kpiFindQCShop(qcDetail, shopName) {
+  const key = kpiShopKey(shopName);
+  return (qcDetail || []).find(q => kpiShopKey(q.shop) === key || q.shopKey === key) || null;
+}
+
+function kpiGetLeaderShopData(panel=null) {
+  const rows=(panel || document).querySelectorAll('.leader-shop-body tr');
   let nsOk=0,nsT=0,rspOk=0,rspT=0,r3Ok=0,r3T=0,procOk=0,procT=0;
   const shops=[];
   for (const row of rows) {
-    const tdText=row.querySelector('td:first-child')?.textContent.trim();
+    const tdText=row.querySelector('.leader-shop-name')?.value.trim();
     if (!tdText) continue;
-    const inputs=row.querySelectorAll('input');
-    const ns=parseFloat(inputs[0]?.value),resp=parseFloat(inputs[1]?.value);
-    const proc=parseFloat(inputs[2]?.value),r3=parseFloat(inputs[3]?.value);
-    if (!isNaN(ns))   { nsT++;   if(ns<=kpiGetNonSatStd(tdText))nsOk++;   }
-    if (!isNaN(resp)) { rspT++;  if(resp<=15)rspOk++;  }
-    if (!isNaN(r3))   { r3T++;   if(r3>=99)r3Ok++;   }
-    if (!isNaN(proc)) { procT++; if(proc>=100)procOk++; }
-    shops.push({shopName:tdText,ns,resp,proc,r3});
+    const nsStd=leaderParsePercentValue(row.querySelector('.leader-ns-std')?.value) ?? kpiGetNonSatStd(tdText);
+    // 已配置的店铺没有非满数据时，按非满率0%（满意度100%）计算。
+    const ns=leaderParsePercentValue(row.querySelector('.leader-ns')?.value) ?? 0;
+    const resp=leaderParseNumberValue(row.querySelector('.leader-resp')?.value);
+    const proc=leaderParseNumberValue(row.querySelector('.leader-proc')?.value);
+    const r3=leaderParsePercentValue(row.querySelector('.leader-r3')?.value);
+    if (ns != null)   { nsT++;   if(ns<=nsStd)nsOk++;   }
+    if (resp != null) { rspT++;  if(resp<=15)rspOk++;  }
+    if (r3 != null)   { r3T++;   if(r3>=99)r3Ok++;   }
+    if (proc != null) { procT++; if(proc>=90)procOk++; }
+    shops.push({shopName:tdText,nsStd,ns,resp,proc,r3});
   }
   return {
     shops,
@@ -4988,10 +7031,19 @@ function kpiGetLeaderShopData() {
   };
 }
 
+function kpiGetLeaderGroups() {
+  return [...document.querySelectorAll('.leader-group-card')].map(panel => ({
+    panel,
+    name: panel.querySelector('.leader-name')?.value.trim() || '',
+    base: parseFloat(panel.querySelector('.leader-base')?.value) || 2000,
+    training: parseInt(panel.querySelector('.leader-training')?.value) || 0,
+    data: kpiGetLeaderShopData(panel)
+  }));
+}
+
 async function kpiCalculate() {
   const month=document.getElementById('kpiMonth').value;
   const base=parseFloat(document.getElementById('kpiBase').value)||1000;
-  const leaderBase=parseFloat(document.getElementById('kpiLeaderBase').value)||2000;
   const should=parseInt(document.getElementById('kpiShouldDays').value)||22;
   if (!month) { pfToast('请选择考核月份','error'); return; }
   const storeFiles=document.getElementById('kpiStoreFiles').files;
@@ -5001,13 +7053,19 @@ async function kpiCalculate() {
 
   try {
     // ① 解析接待数据
+    setStatus('⏳ 加载名册…');
+    const nickMap = await kpiBuildNickMap(); // 一次性读取（含数据库新增的昵称）
     setStatus('⏳ 解析接待数据…');
     const agentShopData={};
+    const allUnmatched=[]; // 所有文件中未匹配的昵称汇总
     for (const file of storeFiles) {
-      const {shopName, agents}=await kpiParseStoreFile(file);
-      for (const a of agents) {
-        if (!agentShopData[a.agent]) agentShopData[a.agent]={};
-        agentShopData[a.agent][shopName]={volume:a.volume,nonsat:a.nonsat,resp:a.resp,reply3m:a.reply3m};
+      const {results=[]}=await kpiParseStoreFile(file, nickMap);
+      for (const {shopName, agents, unmatched} of results) {
+        allUnmatched.push(...unmatched);
+        for (const a of agents) {
+          if (!agentShopData[a.agent]) agentShopData[a.agent]={};
+          agentShopData[a.agent][shopName]={volume:a.volume,nonsat:a.nonsat,resp:a.resp,reply3m:a.reply3m};
+        }
       }
     }
 
@@ -5021,6 +7079,7 @@ async function kpiCalculate() {
     // ③ 质检数据
     setStatus('⏳ 读取质检数据…');
     const qcRecords=await kpiFetchQCData(month);
+    const noQcForMonth = !qcRecords.length;
 
     // ④ 接待量基准
     const allVols=Object.values(agentShopData).map(s=>Object.values(s).reduce((a,d)=>a+d.volume,0));
@@ -5047,7 +7106,12 @@ async function kpiCalculate() {
       const totalVol=Object.values(shops).reduce((s,d)=>s+d.volume,0);
       const nonSatRate=nsT?nsOk/nsT*100:100; // 无非满数据时默认100%（不清零不扣分）
       const volRate=Math.min(totalVol/volThresh*100,100);
-      const qcDetail=kpiCalcQCDetail(agent,qcRecords);
+      const actualQcDetail=kpiCalcQCDetail(agent,qcRecords);
+      // 每个实际服务店铺都参与质检项；无质检记录的店铺默认合格率100%。
+      const qcDetail=entries.map(([shopName]) => {
+        const actual=kpiFindQCShop(actualQcDetail,shopName);
+        return actual || {shop:shopName,shopKey:kpiShopKey(shopName),pass:0,total:0,rate:100,ok:true,defaulted:true};
+      });
       const qcRate=qcDetail.length?(qcDetail.filter(d=>d.ok).length/qcDetail.length*100):100;
       const respRate=rspT?rspOk/rspT*100:100;
       const reply3mRate=r3T?r3Ok/r3T*100:100;
@@ -5058,6 +7122,9 @@ async function kpiCalculate() {
     }
 
     // ⑥ 计算工单客服KPI
+    const leaderGroups=kpiGetLeaderGroups();
+    const leaderNames=leaderGroups.map(g=>g.name).filter(Boolean);
+    if (new Set(leaderNames).size !== leaderNames.length) throw new Error('组长姓名不能重复，请检查组长卡片');
     const leaderSD=kpiGetLeaderShopData();
     const woMeta=woData._meta||{avgTotal:0,bench:0};
     const workorderResults=[];
@@ -5073,24 +7140,71 @@ async function kpiCalculate() {
 
     // ⑦ 计算组长KPI
     const leaderResults=[];
-    const leaderName=document.getElementById('kpiLeaderName').value.trim();
-    const trainCnt=parseInt(document.getElementById('leaderTrainingCnt').value)||0;
-    const trainRate=trainCnt<=5?0:(trainCnt>=10?100:trainCnt/10*100);
-    if (leaderName) {
-      const scores={teamNonSat:+leaderSD.nonSatRate.toFixed(1),respTime:+leaderSD.respRate.toFixed(1),reply3m:+leaderSD.reply3mRate.toFixed(1),procTime:+leaderSD.procRate.toFixed(1),training:+trainRate.toFixed(1)};
+    for (const group of leaderGroups) {
+      if (!group.name) continue;
+      if (!group.data.shops.length) throw new Error(`组长“${group.name}”尚未配置负责店铺`);
+      const trainCnt=group.training;
+      const trainRate=trainCnt<=5?0:(trainCnt>=10?100:trainCnt/10*100);
+      const scores={teamNonSat:+group.data.nonSatRate.toFixed(1),respTime:+group.data.respRate.toFixed(1),reply3m:+group.data.reply3mRate.toFixed(1),procTime:+group.data.procRate.toFixed(1),training:+trainRate.toFixed(1)};
       const coef=calcPerfCoef(scores,'leader',should,should);
-      leaderResults.push({name:leaderName,month,role:'leader',base_salary:leaderBase,scores,coef,amount:Math.round(leaderBase*coef),
-        detail:{type:'leader',shops:leaderSD.shops,trainCnt,trainRate}});
+      leaderResults.push({name:group.name,month,role:'leader',group_name:`${group.name}组`,base_salary:group.base,scores,coef,amount:Math.round(group.base*coef),
+        detail:{type:'leader',shops:group.data.shops,trainCnt,trainRate}});
     }
 
-    setStatus('✅ 计算完成');
+    setStatus(noQcForMonth ? '✅ 计算完成（本月无质检记录，质检合格率已默认按100%）' : '✅ 计算完成');
     window._kpiPendingResults={receptionResults,workorderResults,leaderResults};
+    kpiShowUnmatched(allUnmatched);
     kpiShowResults(receptionResults,workorderResults,leaderResults);
+    // 组长绩效结果卡片（在输入区下方显示）
+    leaderShowResult(leaderResults.length === 1 ? leaderResults[0] : null);
+    if (leaderResults.length > 1) leaderSetStatus(`✅ 已分别计算 ${leaderResults.length} 位组长，完整结果请查看下方绩效计算结果预览`, 'ok');
 
   } catch(e) {
     setStatus('❌ '+e.message);
     console.error(e);
   }
+}
+
+function kpiShowUnmatched(list) {
+  // 移除旧的警告框
+  const old=document.getElementById('kpiUnmatchedWarn');
+  if (old) old.remove();
+  if (!list||list.length===0) return;
+
+  // 去重：同一昵称+店铺只提示一次
+  const seen=new Set();
+  const deduped=list.filter(u=>{
+    const key=u.nick+'|'+u.shopName;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+
+  const rows=deduped.map(u=>`
+    <tr style="border-bottom:1px solid #ffe0b2">
+      <td style="padding:6px 12px;font-weight:600;color:#E65100">${esc(u.nick)}</td>
+      <td style="padding:6px 12px;color:#555">${esc(u.shopName)}</td>
+      <td style="padding:6px 12px;color:#888">接待量 ${u.volume} 条，未计入绩效</td>
+    </tr>`).join('');
+
+  const el=document.createElement('div');
+  el.id='kpiUnmatchedWarn';
+  el.style.cssText='background:#fff8e1;border:2px solid #FFB300;border-radius:12px;padding:16px 20px;margin-bottom:16px';
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:18px">⚠️</span>
+      <span style="font-weight:700;font-size:14px;color:#E65100">发现 ${deduped.length} 个未匹配昵称，这些客服的接待数据未计入绩效</span>
+      <span style="font-size:12px;color:#888;margin-left:4px">→ 请到「名册管理」补充对应真实姓名</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#fff3e0">
+        <th style="padding:6px 12px;text-align:left;font-weight:600">客服昵称</th>
+        <th style="padding:6px 12px;text-align:left;font-weight:600">所在店铺</th>
+        <th style="padding:6px 12px;text-align:left;font-weight:600">说明</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  document.getElementById('kpiUploadPanel').insertAdjacentElement('afterend', el);
 }
 
 function toggleKpiDetail(idx) {
@@ -5148,9 +7262,9 @@ function kpiDetailHtml(r) {
       for (const q of d.qcDetail) {
         inner+=`<tr style="border-bottom:1px solid #f5f5f5">
           <td style="padding:5px 8px;font-weight:600">${esc(q.shop)}</td>
-          <td style="${tdStyle}">${q.total}</td>
-          <td style="${tdStyle}">${q.pass}</td>
-          <td style="${tdStyle};color:${q.ok?'var(--pass)':'var(--fail)'}">${q.rate}%</td>
+          <td style="${tdStyle}">${q.defaulted?'无质检':q.total}</td>
+          <td style="${tdStyle}">${q.defaulted?'默认':q.pass}</td>
+          <td style="${tdStyle};color:${q.ok?'var(--pass)':'var(--fail)'}">${q.rate}%${q.defaulted?'（默认）':''}</td>
           <td style="${tdStyle}">${ok(q.ok)}</td>
         </tr>`;
       }
@@ -5173,7 +7287,7 @@ function kpiDetailHtml(r) {
         <th style="${thS}">绩效贡献</th>
       </tr></thead><tbody>
       <tr style="border-bottom:1px solid #f5f5f5">
-        <td style="${tdS};text-align:left;font-weight:600">售后处理时长达成率</td>
+        <td style="${tdS};text-align:left;font-weight:600">售后处理响应时长</td>
         <td style="${tdS}">50%</td>
         <td style="${tdS}">${d.procRate!=null?d.procRate.toFixed(1)+'%':'100%'}（团队指标）</td>
         <td style="${tdS};color:#888">店铺达标率100%</td>
@@ -5222,10 +7336,10 @@ function kpiDetailHtml(r) {
         <th style="${thStyle}">3分回复%<span style="color:#1565C0;font-size:10px;margin-left:3px">(占10%)</span></th><th style="${thStyle}">3分达标</th>
       </tr></thead><tbody>`;
     for (const s of (d.shops||[])) {
-      const nsStd=kpiGetNonSatStd(s.shopName);
+      const nsStd=s.nsStd ?? kpiGetNonSatStd(s.shopName);
       const nsPass=!isNaN(s.ns)?s.ns<=nsStd:null;
       const rspPass=!isNaN(s.resp)?s.resp<=15:null;
-      const procPass=!isNaN(s.proc)?s.proc>=100:null;
+      const procPass=!isNaN(s.proc)?s.proc>=90:null;
       const r3Pass=!isNaN(s.r3)?s.r3>=99:null;
       inner+=`<tr style="border-bottom:1px solid #f5f5f5">
         <td style="padding:5px 8px;font-weight:600">${esc(s.shopName)}</td>
@@ -5246,18 +7360,54 @@ function kpiDetailHtml(r) {
 }
 
 function kpiShowResults(reception, workorder, leader) {
-  const all=[...reception,...workorder,...leader];
+  // ── 名字规范化 & 同名合并 ──────────────────────────────────────
+  const normalizeResults = (arr) => {
+    const merged = {};
+    for (const r of arr) {
+      const name = kpiNormalizeName(r.name);
+      if (!merged[name]) {
+        merged[name] = { ...r, name };
+      } else {
+        // 合并：scores 取加权平均（用 vol 加权），amount/coef 重算
+        const a = merged[name], b = { ...r, name };
+        // 简单处理：取两者中接待量更多的那个的指标，amount 相加
+        a.amount += b.amount;
+        // 接待量合并（取较大值的 coef，amount 已合并）
+      }
+    }
+    return Object.values(merged);
+  };
+  reception = normalizeResults(reception);
+  workorder = normalizeResults(workorder);
+
+  // ── 分离售后客服 ──────────────────────────────────────────────
+  const isAftercare = r => kpiIsAftercare(r.name);
+  const mainReception  = reception.filter(r => !isAftercare(r));
+  const aftercareList  = [...reception.filter(isAftercare), ...workorder.filter(isAftercare)];
+  const mainWorkorder  = workorder.filter(r => !isAftercare(r));
+
+  const all=[...mainReception,...mainWorkorder,...leader];
+  // 生成“当前试算数据”快照：不点击保存也能在「绩效排名」里临时查看排名
+  const trialRecords = all.map(r => ({
+    name: r.name, month: r.month, role: r.role, group_name: r.group_name || '',
+    base_salary: r.base_salary, scores: r.scores, coef: r.coef,
+    detail_json: r.detail || null, detail: r.detail || null, _trial: true
+  }));
+  window._kpiTrialRankRecords = trialRecords;
+  try { sessionStorage.setItem('kpi_trial_rank_records', JSON.stringify({ month: all[0]?.month || '', updatedAt: new Date().toLocaleString(), records: trialRecords })); } catch(e) {}
   const roleLabel={reception:'接待',workorder:'工单',leader:'组长'};
   let html=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <div style="font-size:15px;font-weight:700">📊 绩效计算结果预览</div>
     <div style="display:flex;gap:8px">
       <button onclick="kpiSaveAll()" style="padding:8px 20px;background:#2E7D32;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💾 保存全部到系统</button>
+      <button onclick="kpiExportPersonalExcel()" style="padding:8px 16px;background:#00897B;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px">📗 导出个人绩效Excel</button>
       <button onclick="kpiExportCSV()" style="padding:8px 16px;background:#1565C0;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px">📥 导出CSV</button>
     </div>
   </div>
   <div style="margin-bottom:12px;padding:10px 14px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2E7D32">
-    ✅ 接待客服 ${reception.length} 人 · 工单客服 ${workorder.length} 人 · 组长 ${leader.length} 人 · 合计 ${all.length} 人
-    <span style="margin-left:12px;color:#666;font-size:12px">💡 点击姓名行可展开店铺明细</span>
+    ✅ 接待客服 ${mainReception.length} 人 · 工单客服 ${mainWorkorder.length} 人 · 组长 ${leader.length} 人 · 合计 ${all.length} 人
+    ${aftercareList.length>0?`<span style="margin-left:8px;color:#E65100">（另有售后客服 ${aftercareList.length} 人，见下方待确认区）</span>`:''}
+    <span style="margin-left:12px;color:#666;font-size:12px">💡 点击姓名行可展开店铺明细；已同步生成“当前试算排名”</span>
   </div>
   <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8f8f8">
@@ -5268,12 +7418,12 @@ function kpiShowResults(reception, workorder, leader) {
     <th style="padding:9px;text-align:center">实发(元)</th><th style="padding:9px;text-align:center">状态</th>
   </tr></thead><tbody>`;
 
-  all.forEach((r,idx)=>{
+  const renderRow = (r, idx) => {
     const s=r.scores;
     const ns=s.nonSat??s.teamNonSat;
     const cleared=r.coef===0;
     const statusHtml=cleared?'<span style="color:var(--fail);font-weight:700">🚨清零</span>':r.coef>=0.9?'<span style="color:var(--pass)">✅达标</span>':'<span style="color:var(--warn)">⚠️待提升</span>';
-    html+=`<tr onclick="toggleKpiDetail(${idx})" style="border-bottom:1px solid #f0f0f0;background:${cleared?'#fff8f8':'white'};cursor:pointer" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='${cleared?'#fff8f8':'white'}'">
+    return `<tr onclick="toggleKpiDetail(${idx})" style="border-bottom:1px solid #f0f0f0;background:${cleared?'#fff8f8':'white'};cursor:pointer" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='${cleared?'#fff8f8':'white'}'">
       <td style="padding:9px 12px;font-weight:700"><span id="kpiArrow_${idx}" style="font-size:10px;color:#888;margin-right:6px">▶</span>${esc(r.name)}</td>
       <td style="padding:9px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;background:#f0f0f0">${roleLabel[r.role]||r.role}</span></td>
       <td style="padding:9px;text-align:center;color:${ns<=60?'var(--fail)':ns<80?'var(--warn)':'inherit'};font-weight:${ns<=60?700:400}">${ns!=null?ns+'%':'—'}</td>
@@ -5286,8 +7436,44 @@ function kpiShowResults(reception, workorder, leader) {
       <td style="padding:9px;text-align:center">${statusHtml}</td>
     </tr>
     <tr id="kpiDRow_${idx}" style="display:none">${kpiDetailHtml(r)}</tr>`;
-  });
+  };
+
+  all.forEach((r,idx) => { html += renderRow(r, idx); });
   html+='</tbody></table></div>';
+
+  // ── 售后客服待确认区 ────────────────────────────────────────────
+  if (aftercareList.length > 0) {
+    html += `<div style="margin-top:20px;border:1px dashed #E65100;border-radius:10px;padding:14px;background:#FFF8F5">
+      <div style="font-size:13px;font-weight:700;color:#E65100;margin-bottom:10px">
+        ⚠️ 售后客服（共 ${aftercareList.length} 人）— 请确认后再纳入正式绩效
+      </div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px">以下人员名称包含"售后"，已从正式结果中移出，请核查是否需要单独计算绩效。</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#FFF3E0">
+          <th style="padding:8px 12px;text-align:left">姓名</th>
+          <th style="padding:8px;text-align:center">岗位</th>
+          <th style="padding:8px;text-align:center">非满达标率</th>
+          <th style="padding:8px;text-align:center">质检达标率</th>
+          <th style="padding:8px;text-align:center">接待/工单量</th>
+          <th style="padding:8px;text-align:center">绩效系数</th>
+          <th style="padding:8px;text-align:center">预计实发</th>
+        </tr></thead><tbody>`;
+    aftercareList.forEach((r, i) => {
+      const s = r.scores;
+      const ns = s.nonSat ?? s.teamNonSat;
+      const cleared = r.coef === 0;
+      html += `<tr style="border-bottom:1px solid #ffe0cc;background:${i%2===0?'white':'#fff8f5'}">
+        <td style="padding:8px 12px;font-weight:600">${esc(r.name)}</td>
+        <td style="padding:8px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;background:#f0f0f0">${roleLabel[r.role]||r.role}</span></td>
+        <td style="padding:8px;text-align:center;color:${ns<=60?'var(--fail)':''}">${ns!=null?ns+'%':'—'}</td>
+        <td style="padding:8px;text-align:center">${s.qc!=null?s.qc+'%':'—'}</td>
+        <td style="padding:8px;text-align:center">${s.volume!=null?s.volume+'%':s.woVolume!=null?s.woVolume+'%':'—'}</td>
+        <td style="padding:8px;text-align:center;font-weight:700;color:${cleared?'var(--fail)':'var(--warn)'}">${(r.coef*100).toFixed(1)}%</td>
+        <td style="padding:8px;text-align:center;font-weight:700;color:var(--primary)">¥${r.amount}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div></div>';
+  }
 
   let el=document.getElementById('kpiResultPreview');
   if (!el) {
@@ -5303,24 +7489,168 @@ function kpiShowResults(reception, workorder, leader) {
 async function kpiSaveAll() {
   const res=window._kpiPendingResults;
   if (!res) { pfToast('没有待保存数据','error'); return; }
-  const all=[...res.receptionResults,...res.workorderResults,...res.leaderResults];
+  // 保存时排除售后客服、名字规范化、去重
+  const normalize = arr => {
+    const seen={}; return arr.filter(r=>!kpiIsAftercare(r.name)).map(r=>({...r,name:kpiNormalizeName(r.name)})).filter(r=>{if(seen[r.name])return false;seen[r.name]=true;return true;});
+  };
+  const all=[...normalize(res.receptionResults),...normalize(res.workorderResults),...res.leaderResults];
   if (!all.length) { pfToast('没有可保存的记录','error'); return; }
   const month=all[0].month;
   // 先删除同月已有记录（避免重复）
   await _supa.from('perf_records').delete().eq('month',month);
   // 批量插入
-  const payloads=all.map(r=>({
-    name:r.name, month:r.month, role:r.role,
-    group_name:'', base_salary:r.base_salary,
-    scores:r.scores, coef:r.coef
-  }));
+  // 为接待客服构建 shop_details（非满率/质检合格率 → 小数格式，供店铺明细页使用）
+  const buildShopDetails = (r) => {
+    if (r.role !== 'reception' || !r.detail?.shopDetail?.length) return [];
+    return r.detail.shopDetail.map(sd => {
+      const qcShop = kpiFindQCShop(r.detail.qcDetail || [], sd.shopName);
+      return {
+        shop:   sd.shopName,
+        nonSat: sd.nonsat != null ? sd.nonsat / 100 : null,   // 百分比→小数
+        qc:     qcShop ? qcShop.rate / 100 : null,             // 百分比→小数；未匹配时保留空，避免误显示100%
+        resp:   sd.resp != null ? sd.resp : null,              // 响应时长（秒）
+        reply3m:sd.reply3m != null ? sd.reply3m / 100 : null,  // 3分钟回复率：百分比→小数
+        volume: sd.volume || 0
+      };
+    });
+  };
+
+  const payloads=all.map(r=>{
+    const shopDetails = buildShopDetails(r);
+    const scores = shopDetails.length
+      ? { ...r.scores, shop_details: shopDetails }
+      : r.scores;
+    return {
+      name:r.name, month:r.month, role:r.role,
+      group_name:r.group_name || '', base_salary:r.base_salary,
+      scores, coef:r.coef,
+      detail_json: r.detail || null
+    };
+  });
   const {error}=await _supa.from('perf_records').insert(payloads);
   if (error) { pfToast('❌ 保存失败：'+error.message,'error'); console.error(error); return; }
   pfToast(`✅ 已保存 ${all.length} 条绩效记录`);
   pfLoading(true);
   _perfRecords=await dbLoad();
   pfLoading(false);
+  // 刷新月份下拉框并自动切换到刚保存的月份
+  pfRefreshMonthSel();
+  const sel=document.getElementById('pfMonthSel');
+  if (sel) sel.value=month;
   pfRenderAll();
+  // 自动跳转到绩效结果页，让用户直接看到保存的数据
+  switchTab('perf');
+  // 显示飞书推送按钮
+  _kpiShowFeishuPushBtn(all, month);
+}
+
+// ── 保存后显示飞书推送按钮 ──
+function _kpiShowFeishuPushBtn(all, month) {
+  let bar = document.getElementById('feishuPushBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'feishuPushBar';
+    bar.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;align-items:center;gap:10px;background:white;border:1.5px solid #1565C0;border-radius:12px;padding:12px 18px;box-shadow:0 4px 16px rgba(0,0,0,0.15)';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="font-size:13px;color:#333">绩效已保存，是否推送到飞书群？</span>
+    <button onclick="_doPushToFeishu()" style="padding:7px 16px;background:#1565C0;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">📢 推送飞书</button>
+    <button onclick="document.getElementById('feishuPushBar').style.display='none'" style="padding:7px 12px;background:#f5f5f5;color:#666;border:none;border-radius:8px;cursor:pointer;font-size:13px">✕</button>`;
+  bar.style.display = 'flex';
+  bar._data = { all, month };
+  // 10秒后自动隐藏
+  setTimeout(() => { if (bar) bar.style.display = 'none'; }, 10000);
+}
+
+async function _doPushToFeishu() {
+  const bar = document.getElementById('feishuPushBar');
+  if (!bar || !bar._data) return;
+  const { all, month } = bar._data;
+  bar.innerHTML = '<span style="font-size:13px;color:#888">推送中…</span>';
+  try {
+    await pushPerfToFeishu(all, month);
+    bar.innerHTML = '<span style="font-size:13px;color:#2e7d32">✅ 已推送到飞书群</span>';
+    setTimeout(() => { bar.style.display = 'none'; }, 3000);
+  } catch(e) {
+    bar.innerHTML = `<span style="font-size:13px;color:#c00">❌ 推送失败：${e.message}</span><button onclick="document.getElementById('feishuPushBar').style.display='none'" style="margin-left:8px;padding:4px 10px;border:none;background:#f5f5f5;border-radius:6px;cursor:pointer">关闭</button>`;
+  }
+}
+
+// ── 飞书推送核心函数 ──
+const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/3f26f0ea-d231-4e1a-9b30-c800b7282ab1';
+
+async function pushPerfToFeishu(all, month) {
+  const roleLabel = { reception:'接待', workorder:'工单', leader:'组长' };
+  const displayMonth = month.replace('-', '年') + '月';
+
+  // 统计汇总
+  const total = all.length;
+  const avgCoef = total ? (all.reduce((s,r) => s + parseFloat(r.coef||0), 0) / total * 100).toFixed(1) : 0;
+  const fullCnt = all.filter(r => parseFloat(r.coef||0) >= 0.99).length;
+  const zeroCnt = all.filter(r => parseFloat(r.coef||0) === 0).length;
+
+  // 按角色分组
+  const byRole = { reception: [], workorder: [], leader: [] };
+  all.forEach(r => { if (byRole[r.role]) byRole[r.role].push(r); });
+
+  // 构建每个角色的表格行
+  const buildRows = (recs) => recs
+    .sort((a,b) => parseFloat(b.coef||0) - parseFloat(a.coef||0))
+    .map(r => {
+      const coef = parseFloat(r.coef||0);
+      const pct = (coef*100).toFixed(1);
+      const amt = Math.round((r.base_salary||1000)*coef);
+      const status = coef >= 0.99 ? '✅达标' : coef > 0 ? '⚠️未满' : '🔴清零';
+      return `**${r.name}** ${pct}%　¥${amt}　${status}`;
+    }).join('\n');
+
+  // 构建飞书卡片消息
+  let content = `**📊 ${displayMonth}绩效结果发布**\n\n`;
+  content += `共 **${total}** 人　平均系数 **${avgCoef}%**　满绩效 **${fullCnt}** 人　清零 **${zeroCnt}** 人\n`;
+  content += `─────────────────────\n`;
+
+  if (byRole.reception.length) {
+    content += `\n**【接待客服】${byRole.reception.length}人**\n`;
+    content += buildRows(byRole.reception) + '\n';
+  }
+  if (byRole.workorder.length) {
+    content += `\n**【工单客服】${byRole.workorder.length}人**\n`;
+    content += buildRows(byRole.workorder) + '\n';
+  }
+  if (byRole.leader.length) {
+    content += `\n**【组长】${byRole.leader.length}人**\n`;
+    content += buildRows(byRole.leader) + '\n';
+  }
+
+  const payload = {
+    msg_type: 'interactive',
+    card: {
+      config: { wide_screen_mode: true },
+      header: {
+        title: { tag: 'plain_text', content: `📊 ${displayMonth}绩效结果发布` },
+        template: 'blue'
+      },
+      elements: [
+        {
+          tag: 'div',
+          text: { tag: 'lark_md', content }
+        },
+        {
+          tag: 'note',
+          elements: [{ tag: 'plain_text', content: `由客服质检绩效系统自动发送 · ${new Date().toLocaleDateString('zh-CN')}` }]
+        }
+      ]
+    }
+  };
+
+  const res = await fetch(FEISHU_WEBHOOK, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (data.code !== 0) throw new Error(data.msg || '飞书返回错误');
 }
 
 function kpiExportCSV() {
@@ -5342,6 +7672,122 @@ function kpiExportCSV() {
   a.click();
 }
 
+function kpiExportPersonalExcel() {
+  const res=window._kpiPendingResults;
+  if (!res) { pfToast('没有可导出的绩效预测数据','error'); return; }
+  if (typeof XLSX==='undefined') { pfToast('Excel组件尚未加载，请刷新页面后重试','error'); return; }
+
+  // 与预览区保持相同的姓名规范化、去重及售后客服排除规则。
+  const normalize=(arr)=>{
+    const merged={};
+    for (const original of (arr||[])) {
+      if (kpiIsAftercare(original.name)) continue;
+      const name=kpiNormalizeName(original.name);
+      if (!merged[name]) merged[name]={...original,name};
+      else merged[name].amount+=original.amount;
+    }
+    return Object.values(merged);
+  };
+  const all=[...normalize(res.receptionResults),...normalize(res.workorderResults),...(res.leaderResults||[])];
+  if (!all.length) { pfToast('没有可导出的正式绩效数据','error'); return; }
+
+  const wb=XLSX.utils.book_new();
+  const roleLabel={reception:'接待客服',workorder:'工单客服',leader:'客服组长'};
+  const pct=v=>v==null||v===''||!Number.isFinite(Number(v))?'':Number(v)/100;
+  const yn=v=>v==null?'—':(v?'达标':'未达标');
+  const status=r=>r.coef===0?'清零':(r.coef>=0.9?'达标':'待提升');
+  const setWidths=(ws,widths)=>{ ws['!cols']=widths.map(w=>({wch:w})); };
+  const setPct=(ws,range,cols)=>{
+    for (let row=range.s.r;row<=range.e.r;row++) for (const col of cols) {
+      const cell=ws[XLSX.utils.encode_cell({r:row,c:col})];
+      if (cell&&typeof cell.v==='number') cell.z='0.00%';
+    }
+  };
+  const appendSection=(aoa,title,headers,rows)=>{
+    aoa.push([], [title], headers, ...rows);
+    return aoa.length-rows.length;
+  };
+
+  const summary=[['绩效预测汇总'],[],['月份','姓名','岗位','非满达标率','质检达标率','接待/工单量达标率','响应时长达标率','3分钟回复率达标率','绩效系数','绩效基数','实发金额','状态']];
+  for (const r of all) {
+    const s=r.scores||{};
+    summary.push([r.month,r.name,roleLabel[r.role]||r.role,pct(s.nonSat??s.teamNonSat),pct(s.qc),pct(s.volume??s.woVolume),pct(s.respTime),pct(s.reply3m),Number(r.coef||0),Number(r.base_salary||0),Number(r.amount||0),status(r)]);
+  }
+  const sumWs=XLSX.utils.aoa_to_sheet(summary);
+  sumWs['!merges']=[XLSX.utils.decode_range('A1:L1')];
+  sumWs['!autofilter']={ref:`A3:L${summary.length}`};
+  sumWs['!freeze']={xSplit:0,ySplit:3,topLeftCell:'A4',activePane:'bottomLeft',state:'frozen'};
+  setWidths(sumWs,[10,14,12,15,15,20,20,22,12,12,12,10]);
+  setPct(sumWs,XLSX.utils.decode_range(sumWs['!ref']),[3,4,5,6,7,8]);
+  for (let row=3;row<summary.length;row++) for (const col of [9,10]) {
+    const cell=sumWs[XLSX.utils.encode_cell({r:row,c:col})]; if(cell) cell.z='¥#,##0.00';
+  }
+  XLSX.utils.book_append_sheet(wb,sumWs,'绩效汇总');
+
+  const usedNames=new Set(['绩效汇总']);
+  const sheetNameFor=(name)=>{
+    const base=(String(name||'员工').replace(/[\\/?*\[\]:]/g,'_').slice(0,27)||'员工');
+    let candidate=base, i=2;
+    while (usedNames.has(candidate)) candidate=(base.slice(0,27-String(i).length-1)+'_'+i++).slice(0,31);
+    usedNames.add(candidate); return candidate;
+  };
+
+  for (const r of all) {
+    const d=r.detail||{};
+    const aoa=[
+      [`${r.name} - 个人绩效明细`],[],
+      ['月份',r.month,'姓名',r.name,'岗位',roleLabel[r.role]||r.role],
+      ['绩效系数',Number(r.coef||0),'绩效基数',Number(r.base_salary||0),'实发金额',Number(r.amount||0)],
+      ['状态',status(r)]
+    ];
+    const pctSections=[];
+
+    if (d.type==='reception') {
+      aoa.push(['总接待量',d.totalVol??0,'接待量基准',Math.round(d.volThresh||0),'人均接待量',Math.round(d.avgVol||0)]);
+      const start1=appendSection(aoa,'店铺接待明细',['店铺','接待量','非满率','非满标准','非满达标','响应时长(s)','响应达标','3分钟回复率','3分钟达标'],(d.shopDetail||[]).map(s=>[
+        s.shopName,s.volume??0,pct(s.nonsat),pct(s.nsSd),yn(s.nsPass),s.resp??'',yn(s.rspPass),pct(s.reply3m),yn(s.r3Pass)
+      ]));
+      pctSections.push({from:start1,to:aoa.length-1,cols:[2,3,7]});
+      const start2=appendSection(aoa,'店铺质检明细',['店铺','质检总数','合格数','合格率','是否达标','数据说明'],(d.qcDetail||[]).map(q=>[
+        q.shop,q.defaulted?'无质检':q.total,q.defaulted?'默认':q.pass,pct(q.rate),yn(q.ok),q.defaulted?'无质检数据，按规则默认100%':'实际质检数据'
+      ]));
+      pctSections.push({from:start2,to:aoa.length-1,cols:[3]});
+    } else if (d.type==='workorder') {
+      appendSection(aoa,'工单绩效明细',['指标','数据','标准','是否达标'],[
+        ['售后处理响应时长',pct(d.procRate??100),'店铺达标率100%',yn((d.procRate??100)>=100)],
+        ['工单量',`创建${d.create??0} + 完结${d.finish??0} = ${d.woTotal??0}` ,`≥${d.bench??'—'}条`,yn((d.volRate??100)>=80)],
+        ['工单量达标率',pct(d.volRate),'≥80%',yn((d.volRate??100)>=80)],
+        ['平均解决时长',d.avgSolveH==null?'无完结记录':Number(d.avgSolveH), '≤96小时',yn(d.avgSolveH==null||d.solveOk)],
+        ['其他要求','默认达标','按时完成','达标']
+      ]);
+    } else if (d.type==='leader') {
+      aoa.push(['培训次数',d.trainCnt??0,'培训得分',pct(d.trainRate)]);
+      const start=appendSection(aoa,'组长负责店铺明细',['店铺','非满率','非满标准','非满达标','响应时长(s)','响应达标','售后处理响应时长','是否达标','3分钟回复率','是否达标'],(d.shops||[]).map(s=>{
+        const nsStd=s.nsStd??kpiGetNonSatStd(s.shopName);
+        return [s.shopName,pct(s.ns),pct(nsStd),yn(!isNaN(s.ns)?s.ns<=nsStd:null),isNaN(s.resp)?'':s.resp,yn(!isNaN(s.resp)?s.resp<=15:null),pct(s.proc),yn(!isNaN(s.proc)?s.proc>=90:null),pct(s.r3),yn(!isNaN(s.r3)?s.r3>=99:null)];
+      }));
+      pctSections.push({from:start,to:aoa.length-1,cols:[1,2,6,8]});
+    }
+
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    const lastCol=Math.max(...aoa.map(row=>row.length),6)-1;
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:lastCol}}];
+    ws['!freeze']={xSplit:0,ySplit:6,topLeftCell:'A7',activePane:'bottomLeft',state:'frozen'};
+    setWidths(ws,[22,16,16,16,16,18,18,20,18,16]);
+    const coefCell=ws['B4']; if(coefCell) coefCell.z='0.00%';
+    const baseCell=ws['D4']; if(baseCell) baseCell.z='¥#,##0.00';
+    const amtCell=ws['F4']; if(amtCell) amtCell.z='¥#,##0.00';
+    for (const sec of pctSections) for(let row=sec.from;row<=sec.to;row++) for(const col of sec.cols) {
+      const cell=ws[XLSX.utils.encode_cell({r:row,c:col})]; if(cell&&typeof cell.v==='number') cell.z='0.00%';
+    }
+    XLSX.utils.book_append_sheet(wb,ws,sheetNameFor(r.name));
+  }
+
+  const month=all[0]?.month||document.getElementById('kpiMonth')?.value||'';
+  XLSX.writeFile(wb,`绩效预测_${month}_个人明细.xlsx`,{compression:true});
+  pfToast(`已导出 ${all.length} 人的个人绩效Excel`);
+}
+
 function kpiInitPage() {
   // 设置默认月份为当前月
   const m=document.getElementById('kpiMonth');
@@ -5349,6 +7795,8 @@ function kpiInitPage() {
   kpiInitLeaderTable();
 }
 
+
+console.log('QMS patch: CSV DB import + safe archive + month visibility 2026-06-01');
 </script>
 </body>
 </html>
