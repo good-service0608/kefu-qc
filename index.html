@@ -6814,6 +6814,8 @@ async function kpiReadXlsxSheets(file) {
 
 function kpiShopFromFile(filename) {
   const n = filename.replace('.xlsx','').replace('.XLSX','');
+  // “吉列维纳斯”同时包含“吉列”，必须优先识别为维纳斯，避免两店数据互相覆盖。
+  if (n.toLowerCase().includes('吉列维纳斯') || n.toLowerCase().includes('维纳斯')) return '维纳斯';
   for (const shop of KPI_LEADER_SHOPS) {
     if (n.toLowerCase().includes(shop.toLowerCase())) return shop;
   }
