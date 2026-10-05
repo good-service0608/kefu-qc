@@ -1547,6 +1547,8 @@ async function refreshQcRosterFromDB() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div class="section-title">📋 客服名册</div>
       <div style="display:flex;align-items:center;gap:8px">
+        <input type="file" id="rosterImportInput" accept=".xlsx,.xls" style="display:none" onchange="importRosterExcel(this)">
+        <button id="btnImportRoster" onclick="document.getElementById('rosterImportInput').click()" style="display:none;background:#1565C0;color:white;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">更新名册 Excel</button>
         <button onclick="exportRosterExcel()" style="background:#00897B;color:white;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">⬇ 导出名册Excel</button>
         <button class="btn-add-roster" id="btnAddRoster" onclick="openRosterModal(null)" style="display:none">＋ 添加记录</button>
       </div>
@@ -1895,7 +1897,7 @@ async function refreshQcRosterFromDB() {
       <div class="weight-label">售后处理响应时长 <span style="color:var(--fail);font-size:11px">（核心）</span></div>
       <div class="weight-bar-wrap">
         <div class="weight-bar" style="width:300px;background:#DA291C">50%</div>
-        <div class="weight-note">每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零</div>
+        <div class="weight-note">每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；店铺达标率&lt;60%整体清零</div>
       </div>
     </div>
     <div class="weight-row">
@@ -1923,7 +1925,7 @@ async function refreshQcRosterFromDB() {
 
   <div class="scheme-card">
     <div class="scheme-card-title">关键规则</div>
-    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理响应时长达标率≤60%</strong> → 本月整体绩效清零</div></div>
+    <div class="rule-item red"><div class="rule-icon">🚨</div><div><strong>售后处理响应时长店铺达标率&lt;60%</strong> → 本月整体绩效清零；≥60%正常计分</div></div>
     <div class="rule-item orange"><div class="rule-icon">⚠️</div><div><strong>平均解决时间目标≤96h</strong>，母婴类允许适当延长，后期持续摸索优化</div></div>
     <div class="rule-item orange"><div class="rule-icon">📅</div><div><strong>出勤规则</strong>：实发绩效 = 绩效基数 × (实际出勤天数 ÷ 应出勤天数) × 绩效系数；新人入职不足15天无绩效</div></div>
     <div class="rule-item green"><div class="rule-icon">🏆</div><div><strong>加分项+10%</strong>：主动要求扩大工作范围或储备组长期间，需组长+主管+总监确认</div></div>
@@ -3848,7 +3850,7 @@ const PERF_WEIGHTS = {
     { key:'reply3m',  label:'3分钟回复率达标率',weight:0.10, note:'≥99%' },
   ],
   workorder: [
-    { key:'procTime',  label:'售后处理响应时长', weight:0.50, note:'每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；达标率≤60%整体清零' },
+    { key:'procTime',  label:'售后处理响应时长', weight:0.50, note:'每个店铺售后处理响应时长≥90分，达标店铺数/总服务店铺数；店铺达标率<60%整体清零，≥60%正常计分' },
     { key:'woVolume',  label:'工单量达标率',       weight:0.20, note:'工单创建量+完结量≥组内平均值80%，达标店铺数/总服务店铺数' },
     { key:'solveTime', label:'平均解决时间达标率',  weight:0.20, note:'≤96h（总时间÷解决数）' },
     { key:'assist',    label:'其他要求',            weight:0.10, note:'协助接待处理事项 + 群消息回复≤20min' },
@@ -3883,8 +3885,8 @@ function calcPerfCoef(scores, role, attend, should) {
   const nonSatRate = parseFloat(scores.nonSat ?? scores.teamNonSat ?? 100);
   // 接待客服：非满<60%整体清零（60%本身不清零；组长不适用此规则）
   if (role === 'reception' && nonSatRate < 60) return 0;
-  // 工单：售后处理响应时长达标率≤60%整体清零
-  if (role === 'workorder' && parseFloat(scores.procTime || 100) <= 60) return 0;
+  // 工单：售后处理响应时长店铺达标率<60%整体清零；60%本身正常计分。
+  if (role === 'workorder' && parseFloat(scores.procTime ?? 100) < 60) return 0;
 
   let total = 0;
   weights.forEach(w => {
@@ -4736,6 +4738,8 @@ function applyPermissions(role) {
   // 名册添加按钮 admin/supervisor 可见
   const addRosterBtn = document.getElementById('btnAddRoster');
   if (addRosterBtn) addRosterBtn.style.display = (role==='admin'||role==='supervisor') ? 'block' : 'none';
+  const importRosterBtn = document.getElementById('btnImportRoster');
+  if (importRosterBtn) importRosterBtn.style.display = (role==='admin'||role==='supervisor') ? 'block' : 'none';
 
   // 绩效方案编辑按钮 admin/supervisor 可见
   const schemeEditBar = document.getElementById('schemeEditBar');
@@ -6112,6 +6116,70 @@ function exportRosterExcel() {
   pfToast(`已导出 ${people.size} 人、${records.length} 条名册记录`);
 }
 
+async function importRosterExcel(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  input.value = '';
+  if (!['admin','supervisor'].includes(_currentRole)) { pfToast('当前账号没有更新名册权限','error'); return; }
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), {type:'array'});
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1,defval:'',raw:false});
+    if (rows.length < 2) throw new Error('Excel中没有可导入的数据');
+    const header = rows[0].map(v=>String(v||'').trim().replace(/\s+/g,''));
+    const find = (...names) => header.findIndex(h=>names.some(n=>h.includes(n)));
+    const iShop=find('店铺','所属店铺'), iName=find('真实名称','真实姓名'), iNick=find('客服昵称','昵称');
+    if ([iShop,iName,iNick].some(i=>i<0)) throw new Error('需要包含“店铺、真实名称、客服昵称”三列');
+
+    const source = [];
+    const sourceKeys = new Set();
+    for (const row of rows.slice(1)) {
+      const shop_name=String(row[iShop]||'').trim();
+      const real_name=String(row[iName]||'').trim();
+      const nickname=String(row[iNick]||'').trim();
+      if (!shop_name && !real_name && !nickname) continue;
+      if (!shop_name || !real_name || !nickname) throw new Error(`存在未填写完整的记录：${shop_name||'（无店铺）'} / ${real_name||'（无姓名）'} / ${nickname||'（无昵称）'}`);
+      const key=`${shop_name}\u0000${nickname}`;
+      if (sourceKeys.has(key)) throw new Error(`Excel中存在重复记录：${shop_name} / ${nickname}`);
+      sourceKeys.add(key);
+      source.push({shop_name,real_name,nickname,note:''});
+    }
+    if (!source.length) throw new Error('Excel中没有有效名册记录');
+
+    const {data:current,error:readError}=await _supa.from('agent_roster').select('id,shop_name,real_name,nickname,note');
+    if (readError) throw readError;
+    const currentMap=new Map((current||[]).map(r=>[`${String(r.shop_name||'').trim()}\u0000${String(r.nickname||'').trim()}`,r]));
+    const additions=[], updates=[], unchanged=[];
+    for (const row of source) {
+      const existing=currentMap.get(`${row.shop_name}\u0000${row.nickname}`);
+      if (!existing) additions.push(row);
+      else if (String(existing.real_name||'').trim()!==row.real_name) updates.push({id:existing.id,...row,note:existing.note||''});
+      else unchanged.push(row);
+    }
+    if (!additions.length && !updates.length) {
+      alert(`比对完成：${unchanged.length} 条全部一致，无需更新。`);
+      return;
+    }
+    const updatePreview=updates.slice(0,8).map(r=>`${r.shop_name} / ${r.nickname} → ${r.real_name}`).join('\n');
+    const message=`比对完成：\n新增 ${additions.length} 条\n修正姓名 ${updates.length} 条\n已一致并跳过 ${unchanged.length} 条`+
+      (updatePreview?`\n\n姓名修正示例：\n${updatePreview}${updates.length>8?'\n……':''}`:'')+'\n\n确认更新客服名册吗？';
+    if (!confirm(message)) return;
+
+    if (additions.length) {
+      const {error}=await _supa.from('agent_roster').insert(additions);
+      if (error) throw error;
+    }
+    for (const row of updates) {
+      const {error}=await _supa.from('agent_roster').update({real_name:row.real_name}).eq('id',row.id);
+      if (error) throw error;
+    }
+    await refreshQcRosterFromDB();
+    await loadRosterPage();
+    alert(`名册更新完成：新增 ${additions.length} 条，修正 ${updates.length} 条，跳过 ${unchanged.length} 条。`);
+  } catch(e) {
+    alert('名册更新失败：'+(e?.message||e));
+  }
+}
+
 // ── 弹窗 ──
 function openRosterModal(item) {
   document.getElementById('rosterModalTitle').textContent = item ? '编辑客服记录' : '添加客服记录';
@@ -7290,8 +7358,8 @@ function kpiDetailHtml(r) {
         <td style="${tdS};text-align:left;font-weight:600">售后处理响应时长</td>
         <td style="${tdS}">50%</td>
         <td style="${tdS}">${d.procRate!=null?d.procRate.toFixed(1)+'%':'100%'}（团队指标）</td>
-        <td style="${tdS};color:#888">店铺达标率100%</td>
-        <td style="${tdS}">${ok3((d.procRate??100)>=100)}</td>
+        <td style="${tdS};color:#888">店铺达标率≥60%</td>
+        <td style="${tdS}">${ok3((d.procRate??100)>=60)}</td>
         <td style="${tdS};font-weight:700;color:var(--pass)">${((d.procRate??100)/100*50).toFixed(1)}%</td>
       </tr>
       <tr style="border-bottom:1px solid #f5f5f5">
@@ -7754,7 +7822,7 @@ function kpiExportPersonalExcel() {
       pctSections.push({from:start2,to:aoa.length-1,cols:[3]});
     } else if (d.type==='workorder') {
       appendSection(aoa,'工单绩效明细',['指标','数据','标准','是否达标'],[
-        ['售后处理响应时长',pct(d.procRate??100),'店铺达标率100%',yn((d.procRate??100)>=100)],
+        ['售后处理响应时长',pct(d.procRate??100),'店铺达标率≥60%',yn((d.procRate??100)>=60)],
         ['工单量',`创建${d.create??0} + 完结${d.finish??0} = ${d.woTotal??0}` ,`≥${d.bench??'—'}条`,yn((d.volRate??100)>=80)],
         ['工单量达标率',pct(d.volRate),'≥80%',yn((d.volRate??100)>=80)],
         ['平均解决时长',d.avgSolveH==null?'无完结记录':Number(d.avgSolveH), '≤96小时',yn(d.avgSolveH==null||d.solveOk)],
